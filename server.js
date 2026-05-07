@@ -16,26 +16,45 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+let schemaReady = false;
+let schemaError = null;
+
+// Test route
+app.get("/", (req, res) => {
+  res.json({
+    message: "Backend is running 🚀",
+    schemaReady,
+  });
+});
+
+// Health check
+app.get("/health", (req, res) => {
+  db.query("SELECT 1", (err) => {
+    if (err) {
+      return res.status(500).json({
+        status: "ERROR",
+        db: "error",
+        schemaReady,
+        schemaError: schemaError ? String(schemaError.message || schemaError) : null,
+      });
+    }
+
+    return res.status(schemaReady ? 200 : 503).json({
+      status: schemaReady ? "OK" : "STARTING",
+      db: "connected",
+      schemaReady,
+      schemaError: schemaError ? String(schemaError.message || schemaError) : null,
+    });
+  });
+});
+
 // Routes
 app.use("/auth", authRoutes);
 app.use("/teams", teamRoutes);
 app.use("/chat", chatRoutes);
 app.use("/projects", projectRoutes);
 app.use("/tasks", taskRoutes);
-app.use('/invites', inviteRoutes);
-
-// Test route
-app.get("/", (req, res) => {
-  res.json({ message: "Backend is running 🚀" });
-});
-
-// Health check
-app.get("/health", (req, res) => {
-  db.query("SELECT 1", (err) => {
-    if (err) return res.status(500).json({ db: "error" });
-    res.json({ status: "OK", db: "connected" });
-  });
-});
+app.use("/invites", inviteRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -43,19 +62,40 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong!" });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 5000;
 
-async function startServer() {
-  try {
-    await initializeSchema(db);
-
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error("❌ Failed to initialize schema:", error);
-    process.exit(1);
+async function initSchemaWithRetry(maxRetries = 10, delayMs = 3000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+    try {
+      await initializeSchema(db);
+      schemaReady = true;
+      schemaError = null;
+      console.log("✅ Database schema ready");
+      return;
+    } catch (error) {
+      schemaError = error;
+      console.error(`❌ Schema init failed (attempt ${attempt}/${maxRetries}):`, error.message);
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
+  console.error("❌ Schema initialization failed after retries. Service stays up for diagnostics.");
 }
+
+function startServer() {
+  app.listen(PORT, "0.0.0.0", async () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    await initSchemaWithRetry();
+  });
+}
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+});
 
 startServer();
