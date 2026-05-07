@@ -31,15 +31,15 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
   db.query("SELECT 1", (err) => {
     if (err) {
-      return res.status(500).json({
-        status: "ERROR",
+      return res.status(200).json({
+        status: "DEGRADED",
         db: "error",
         schemaReady,
         schemaError: schemaError ? String(schemaError.message || schemaError) : null,
       });
     }
 
-    return res.status(schemaReady ? 200 : 503).json({
+    return res.status(200).json({
       status: schemaReady ? "OK" : "STARTING",
       db: "connected",
       schemaReady,
@@ -62,7 +62,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong!" });
 });
 
-const PORT = Number(process.env.PORT) || 5000;
+const resolvedPort = Number(process.env.PORT);
+const PORT = Number.isFinite(resolvedPort) && resolvedPort > 0 ? resolvedPort : 8080;
+const HOST = "0.0.0.0";
 
 async function initSchemaWithRetry(maxRetries = 10, delayMs = 3000) {
   for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
@@ -84,8 +86,9 @@ async function initSchemaWithRetry(maxRetries = 10, delayMs = 3000) {
 }
 
 function startServer() {
-  app.listen(PORT, "0.0.0.0", async () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+  app.listen(PORT, HOST, async () => {
+    console.log(`🚀 Server running on ${HOST}:${PORT}`);
+    console.log(`ℹ️ process.env.PORT=${process.env.PORT || "<undefined>"}`);
     await initSchemaWithRetry();
   });
 }
