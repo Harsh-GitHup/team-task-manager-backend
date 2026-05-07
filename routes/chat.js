@@ -5,31 +5,37 @@ const { verifyToken } = require("../middleware/authMiddleware");
 
 // SEND MESSAGE
 router.post("/", verifyToken, (req, res) => {
-  try {
-    const { team_id, message } = req.body;
-    if (!team_id || !message || message.length > 1000) {
-      return res.status(400).json({ error: 'Invalid input' });
-    }
+  const { team_id, message } = req.body;
+  if (!team_id || !message || message.length > 1000) {
+    return res.status(400).json({ error: "Invalid input" });
+  }
 
-    // Check team membership
-    db.query("SELECT 1 FROM team_members WHERE team_id=? AND user_id=?", [team_id, req.user.id], (err, result) => {
-      if (err || result.length === 0) return res.status(403).json({ error: 'Not a team member' });
+  // Check team membership
+  db.query(
+    "SELECT 1 FROM team_members WHERE team_id=? AND user_id=?",
+    [team_id, req.user.id],
+    (err, result) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Server error" });
+      }
+      if (!result || result.length === 0) {
+        return res.status(403).json({ error: "Not a team member" });
+      }
 
       db.query(
         "INSERT INTO messages (team_id, sender_id, message) VALUES (?, ?, ?)",
         [team_id, req.user.id, message],
-        (err, result) => {
-          if (err) {
-            console.error(err);
-            return res.status(500).json({ error: 'Message send failed' });
+        (insertErr, insertResult) => {
+          if (insertErr) {
+            console.error(insertErr);
+            return res.status(500).json({ error: "Message send failed" });
           }
-          res.status(201).json({ id: result.insertId, message: 'Message sent' });
+          return res.status(201).json({ id: insertResult.insertId, message: "Message sent" });
         }
       );
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
+    }
+  );
 });
 
 // GET TEAM CHAT (SECURE, recent first)
@@ -43,7 +49,7 @@ router.get("/:teamId", verifyToken, (req, res) => {
      ORDER BY m.created_at DESC LIMIT 100`,
     [teamId, teamId, req.user.id],
     (err, result) => {
-      if (err) return res.status(500).json({ error: 'Chat fetch failed' });
+      if (err) return res.status(500).json({ error: "Chat fetch failed" });
       res.json(result);
     }
   );
