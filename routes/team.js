@@ -1,0 +1,162 @@
+const express = require("express");
+const router = express.Router();
+const db = require("../config/db");
+const { verifyToken, isAdmin } = require("../middleware/authMiddleware");
+
+// CREATE TEAM (ADMIN ONLY)
+router.post("/", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || name.length < 3) return res.status(400).json({ error: "Invalid name" });
+    const companyId = req.user.company_id || null;
+
+    const [result] = await db.promise().query(
+      "INSERT INTO teams (name, admin_id, company_id) VALUES (?, ?, ?)",
+      [name, req.user.id, companyId]
+    );
+
+    const teamId = result.insertId;
+    try {
+      // auto-add admin as head (best-effort)
+      await db.promise().query(
+        "INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, 'head')",
+        [teamId, req.user.id]
+      );
+    } catch (mErr) {
+      console.warn("Could not auto-add admin to team_members", mErr);
+    }
+
+    return res.status(201).json({ id: teamId, message: "Team created" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ADD MEMBER TO TEAM (company admin or team admin/head)
+router.post("/add-member", verifyToken, async (req, res) => {
+  try {
+    const { team_id, user_id } = req.body;
+    if (!team_id || !user_id) return res.status(400).json({ error: "Missing ids" });
+
+    // validate team
+    const [tRows] = await db.promise().query("SELECT company_id, admin_id FROM teams WHERE id = ?", [team_id]);
+    if (!tRows || tRows.length === 0) return res.status(404).json({ error: "Team not found" });
+    const team = tRows[0];
+
+    if (req.user.company_id && team.company_id && req.user.company_id !== team.company_id) {
+      return res.status(403).json({ error: "Cross-company action not allowed" });
+    }
+
+    // permission: company admin OR team admin OR team head
+    const isCompanyAdmin = req.user.role === "admin" && req.user.company_id === team.company_id;
+    const isTeamAdmin = req.user.id === team.admin_id;
+    let allowed = isCompanyAdmin || isTeamAdmin;
+
+    if (!allowed) {
+      const [headRows] = await db.promise().query(
+        "SELECT 1 FROM team_members WHERE team_id=? AND user_id=? AND role='head' LIMIT 1",
+        [team_id, req.user.id]
+      );
+      allowed = headRows && headRows.length > 0;
+    }
+
+    if (!allowed) return res.status(403).json({ error: "Not authorized" });
+
+    // ensure target user exists and same company
+    const [uRows] = await db.promise().query("SELECT company_id FROM users WHERE id = ?", [user_id]);
+    if (!uRows || uRows.length === 0) return res.status(404).json({ error: "User not found" });
+    const userCompany = uRows[0].company_id;
+    if (req.user.company_id && userCompany && req.user.company_id !== userCompany) {
+      return res.status(400).json({ error: "User belongs to another company" });
+    }
+
+    await db.promise().query(
+      "INSERT IGNORE INTO team_members (team_id, user_id, role) VALUES (?, ?, 'member')",
+      [team_id, user_id]
+    );
+
+    return res.json({ message: "User added to team" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// SET TEAM HEAD (company admin or team admin)
+router.post("/set-head", verifyToken, async (req, res) => {
+  try {
+    const { team_id, user_id } = req.body;
+    if (!team_id || !user_id) return res.status(400).json({ error: "Missing ids" });
+
+    const [tRows] = await db.promise().query("SELECT admin_id, company_id FROM teams WHERE id = ?", [team_id]);
+    if (!tRows || tRows.length === 0) return res.status(404).json({ error: "Team not found" });
+    const team = tRows[0];
+
+    const isCompanyAdmin = req.user.role === "admin" && req.user.company_id === team.company_id;
+    const isTeamAdmin = req.user.id === team.admin_id;
+    if (!isCompanyAdmin && !isTeamAdmin) return res.status(403).json({ error: "Admin only" });
+
+    // ensure user exists and belongs to same company
+    const [uRows] = await db.promise().query("SELECT company_id FROM users WHERE id = ?", [user_id]);
+    if (!uRows || uRows.length === 0) return res.status(404).json({ error: "User not found" });
+    const userCompany = uRows[0].company_id;
+    if (req.user.company_id && userCompany && req.user.company_id !== userCompany) {
+      return res.status(400).json({ error: "User belongs to another company" });
+    }
+
+    // ensure membership and set role
+    await db.promise().query(
+      "INSERT IGNORE INTO team_members (team_id, user_id, role) VALUES (?, ?, 'member')",
+      [team_id, user_id]
+    );
+    await db.promise().query("UPDATE team_members SET role='head' WHERE team_id=? AND user_id=?", [team_id, user_id]);
+
+    return res.json({ message: "Team head assigned" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET MY TEAMS (only teams in same company or membership)
+router.get("/", verifyToken, async (req, res) => {
+  try {
+    const companyFilter = req.user.company_id || null;
+    const [rows] = await db.promise().query(
+      "SELECT t.*, u.name as admin_name FROM teams t JOIN team_members tm ON t.id = tm.team_id JOIN users u ON t.admin_id = u.id WHERE tm.user_id = ? AND (t.company_id = ? OR ? IS NULL)",
+      [req.user.id, companyFilter, companyFilter]
+    );
+    return res.json(rows);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET TEAM MEMBERS (must be member)
+router.get("/:teamId/members", verifyToken, async (req, res) => {
+  try {
+    const teamId = req.params.teamId;
+    const [tRows] = await db.promise().query("SELECT company_id FROM teams WHERE id = ?", [teamId]);
+    if (!tRows || tRows.length === 0) return res.status(404).json({ error: "Team not found" });
+    const teamCompany = tRows[0].company_id;
+    if (req.user.company_id && teamCompany && req.user.company_id !== teamCompany) {
+      return res.status(403).json({ error: "Cross-company access denied" });
+    }
+
+    const [existsRows] = await db.promise().query("SELECT 1 FROM team_members WHERE team_id=? AND user_id=? LIMIT 1", [teamId, req.user.id]);
+    if (!existsRows || existsRows.length === 0) return res.status(403).json({ error: "Not a member" });
+
+    const [members] = await db.promise().query(
+      "SELECT users.id, users.name, users.email, tm.role FROM team_members tm JOIN users ON users.id = tm.user_id WHERE tm.team_id=?",
+      [teamId]
+    );
+    return res.json(members);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+module.exports = router;
