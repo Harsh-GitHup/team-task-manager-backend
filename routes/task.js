@@ -1,7 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
+const multer = require('multer');
+const path = require('path');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { logActivity } = require('./activity');
+
+// Configure Multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/'); // Ensure this directory exists
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage: storage });
 
 // Create task (company admin OR team head)
 router.post('/', verifyToken, (req, res) => {
@@ -53,6 +68,8 @@ router.post('/', verifyToken, (req, res) => {
             console.error(tErr);
             return res.status(500).json({ error: 'Task creation failed' });
           }
+          logActivity(`created task **${title}**`, 'task', tRes.insertId, req.user.id, req.user.company_id);
+          if (req.app.locals.io) req.app.locals.io.emit("refresh_tasks");
           res.status(201).json({ id: tRes.insertId, message: 'Task created' });
         }
       );
@@ -67,7 +84,7 @@ router.get('/', verifyToken, (req, res) => {
     if (req.user.role === 'admin' && companyFilter) {
       // company admin sees all tasks in company
       db.query(
-        "SELECT t.* FROM tasks t JOIN projects p ON t.project_id = p.id JOIN teams tm ON p.team_id = tm.id WHERE tm.company_id = ?",
+        "SELECT t.* FROM tasks t JOIN projects p ON t.project_id = p.id JOIN teams tm ON p.team_id = tm.id WHERE tm.company_id <=> ?",
         [companyFilter],
         (err, result) => {
           if (err) {
@@ -143,6 +160,8 @@ router.put('/:id', verifyToken, async (req, res) => {
       [nextTitle, nextDescription, nextPriority, nextDueDate, nextStatus, nextAssigned || null, nextProject || null, nextTeam || null, taskId]
     );
 
+    logActivity(`updated task **${nextTitle}** to **${nextStatus}**`, 'task', taskId, req.user.id, req.user.company_id);
+    if (req.app.locals.io) req.app.locals.io.emit("refresh_tasks");
     return res.json({ message: 'Task updated' });
   } catch (err) {
     console.error(err);
@@ -170,10 +189,47 @@ router.delete('/:id', verifyToken, async (req, res) => {
     if (!isAdmin && !isAssigned && !isOwner) return res.status(403).json({ error: 'Not authorized' });
 
     await db.promise().query('DELETE FROM tasks WHERE id = ?', [taskId]);
+    
+    logActivity(`deleted task **${task.title}**`, 'task', taskId, req.user.id, req.user.company_id);
+    if (req.app.locals.io) req.app.locals.io.emit("refresh_tasks");
     return res.json({ message: 'Task deleted' });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Task delete failed' });
+  }
+});
+
+// POST ATTACHMENT
+router.post('/:id/attachments', verifyToken, upload.single('file'), async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    await db.promise().query(
+      'INSERT INTO task_attachments (task_id, file_name, file_path, uploaded_by) VALUES (?, ?, ?, ?)',
+      [taskId, req.file.originalname, req.file.filename, req.user.id]
+    );
+
+    logActivity(`attached file to task`, 'task', taskId, req.user.id, req.user.company_id);
+    if (req.app.locals.io) req.app.locals.io.emit("refresh_tasks");
+    return res.json({ message: 'File uploaded', file: req.file.filename });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET ATTACHMENTS
+router.get('/:id/attachments', verifyToken, async (req, res) => {
+  try {
+    const [rows] = await db.promise().query(
+      'SELECT a.*, u.name as uploader_name FROM task_attachments a JOIN users u ON a.uploaded_by = u.id WHERE task_id = ? ORDER BY a.created_at DESC',
+      [req.params.id]
+    );
+    return res.json(rows);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
