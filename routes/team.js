@@ -124,7 +124,7 @@ router.get("/", verifyToken, async (req, res) => {
   try {
     const companyFilter = req.user.company_id || null;
     const [rows] = await db.promise().query(
-      "SELECT t.*, u.name as admin_name FROM teams t JOIN team_members tm ON t.id = tm.team_id JOIN users u ON t.admin_id = u.id WHERE tm.user_id = ? AND (t.company_id = ? OR ? IS NULL)",
+      "SELECT t.*, u.name as admin_name FROM teams t JOIN team_members tm ON t.id = tm.team_id JOIN users u ON t.admin_id = u.id WHERE tm.user_id = ? AND (t.company_id <=> ? OR ? IS NULL)",
       [req.user.id, companyFilter, companyFilter]
     );
     return res.json(rows);
