@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const http = require("http");
+const http = require("node:http");
 const { Server } = require("socket.io");
 require("dotenv").config();
 
@@ -84,7 +84,7 @@ app.use("/tasks", taskRoutes);
 app.use("/invites", inviteRoutes);
 app.use("/activities", activityRoutes);
 
-const fs = require('fs');
+const fs = require('node:fs');
 
 // Ensure uploads dir exists
 if (!fs.existsSync('uploads')) {
