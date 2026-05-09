@@ -101,7 +101,7 @@ router.get('/users', verifyToken, isAdmin, (req, res) => {
             // if company is null, return only system-level admin? deny for safety
             return res.status(400).json({ error: 'Company context required' });
         }
-        db.query("SELECT id, name, email, role FROM users WHERE company_id = ?", [companyId], (err, result) => {
+        db.query("SELECT id, name, email, role FROM users WHERE company_id <=> ?", [companyId], (err, result) => {
             if (err) {
                 console.error(err);
                 return res.status(500).json({ error: 'Could not fetch users' });
