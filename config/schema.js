@@ -80,6 +80,26 @@ const schemaStatements = [
     CONSTRAINT fk_invite_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_invite_creator FOREIGN KEY (created_by) REFERENCES users(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS activities (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    action VARCHAR(255) NOT NULL,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id INT NOT NULL,
+    user_id INT,
+    company_id INT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_activities_user FOREIGN KEY (user_id) REFERENCES users(id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS task_attachments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    task_id INT NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
+    uploaded_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_attachments_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    CONSTRAINT fk_attachments_user FOREIGN KEY (uploaded_by) REFERENCES users(id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
 ];
 
 async function initializeSchema(db) {
