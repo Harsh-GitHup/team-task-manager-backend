@@ -25,6 +25,7 @@ const schemaStatements = [
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     description TEXT,
+    color VARCHAR(32) DEFAULT '#7c6aff',
     created_by INT,
     team_id INT,
     company_id INT DEFAULT NULL,
@@ -49,6 +50,8 @@ const schemaStatements = [
     assigned_to INT,
     team_id INT,
     description TEXT,
+    priority ENUM('low','medium','high') DEFAULT 'medium',
+    due_date DATE DEFAULT NULL,
     status ENUM('Todo', 'In Progress', 'Done') DEFAULT 'Todo',
     created_by INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -96,6 +99,11 @@ async function initializeSchema(db) {
     await promiseDb.query("ALTER TABLE projects ADD COLUMN company_id INT NULL AFTER team_id");
   }
 
+  const [projectsColor] = await promiseDb.query("SHOW COLUMNS FROM projects LIKE 'color'");
+  if (projectsColor.length === 0) {
+    await promiseDb.query("ALTER TABLE projects ADD COLUMN color VARCHAR(32) DEFAULT '#7c6aff' AFTER description");
+  }
+
   const [teamsCompany] = await promiseDb.query("SHOW COLUMNS FROM teams LIKE 'company_id'");
   if (teamsCompany.length === 0) {
     await promiseDb.query("ALTER TABLE teams ADD COLUMN company_id INT NULL AFTER admin_id");
@@ -114,6 +122,16 @@ async function initializeSchema(db) {
   const [tasksDescription] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'description'");
   if (tasksDescription.length === 0) {
     await promiseDb.query("ALTER TABLE tasks ADD COLUMN description TEXT AFTER team_id");
+  }
+
+  const [tasksPriority] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'priority'");
+  if (tasksPriority.length === 0) {
+    await promiseDb.query("ALTER TABLE tasks ADD COLUMN priority ENUM('low','medium','high') DEFAULT 'medium' AFTER description");
+  }
+
+  const [tasksDueDate] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'due_date'");
+  if (tasksDueDate.length === 0) {
+    await promiseDb.query("ALTER TABLE tasks ADD COLUMN due_date DATE DEFAULT NULL AFTER priority");
   }
 
   const [tasksCreatedBy] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'created_by'");
