@@ -5,7 +5,7 @@ const { verifyToken } = require('../middleware/authMiddleware');
 
 // Create task (company admin OR team head)
 router.post('/', verifyToken, (req, res) => {
-  const { title, description, team_id, project_id, assigned_to } = req.body;
+  const { title, description, team_id, project_id, assigned_to, priority, due_date } = req.body;
   if (!title || !team_id || !project_id) return res.status(400).json({ error: 'Missing fields' });
 
   // validate team/project/company
@@ -46,8 +46,8 @@ router.post('/', verifyToken, (req, res) => {
 
     function doInsert() {
       db.query(
-        "INSERT INTO tasks (title, description, team_id, project_id, assigned_to, status, created_by) VALUES (?, ?, ?, ?, ?, 'Todo', ?)",
-        [title, description || '', team_id, project_id, assigned_to || null, req.user.id],
+        "INSERT INTO tasks (title, description, priority, due_date, team_id, project_id, assigned_to, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 'Todo', ?)",
+        [title, description || '', priority || 'medium', due_date || null, team_id, project_id, assigned_to || null, req.user.id],
         (tErr, tRes) => {
           if (tErr) {
             console.error(tErr);
@@ -95,6 +95,85 @@ router.get('/', verifyToken, (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// UPDATE TASK (admin or assigned user / creator)
+router.put('/:id', verifyToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const { title, description, status, assigned_to, project_id, team_id, priority, due_date } = req.body;
+
+    const [rows] = await db.promise().query(
+      'SELECT t.*, p.team_id as project_team_id, tm.company_id as team_company_id FROM tasks t LEFT JOIN projects p ON t.project_id = p.id LEFT JOIN teams tm ON COALESCE(t.team_id, p.team_id) = tm.id WHERE t.id = ?',
+      [taskId]
+    );
+
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+
+    const task = rows[0];
+    const isAssigned = String(task.assigned_to) === String(req.user.id);
+    const isOwner = String(task.created_by) === String(req.user.id);
+    const isAdmin = req.user.role === 'admin' && (!req.user.company_id || !task.team_company_id || String(req.user.company_id) === String(task.team_company_id));
+
+    if (!isAdmin && !isAssigned && !isOwner) return res.status(403).json({ error: 'Not authorized' });
+
+    const allowedStatuses = ['Todo', 'In Progress', 'Done'];
+    if (status && !allowedStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    if (!isAdmin) {
+      if (assigned_to !== undefined || project_id !== undefined || team_id !== undefined) {
+        return res.status(403).json({ error: 'Only admins can reassign or move tasks' });
+      }
+    }
+
+    const nextTitle = title ?? task.title;
+    const nextDescription = description ?? task.description ?? '';
+    const nextPriority = priority ?? task.priority ?? 'medium';
+    const nextDueDate = due_date ?? task.due_date ?? null;
+    const nextStatus = status ?? task.status;
+    const nextAssigned = assigned_to ?? task.assigned_to;
+    const nextProject = project_id ?? task.project_id;
+    const nextTeam = team_id ?? task.team_id ?? task.project_team_id;
+
+    await db.promise().query(
+      'UPDATE tasks SET title = ?, description = ?, priority = ?, due_date = ?, status = ?, assigned_to = ?, project_id = ?, team_id = ? WHERE id = ?',
+      [nextTitle, nextDescription, nextPriority, nextDueDate, nextStatus, nextAssigned || null, nextProject || null, nextTeam || null, taskId]
+    );
+
+    return res.json({ message: 'Task updated' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Task update failed' });
+  }
+});
+
+// DELETE TASK (admin or assigned user / creator)
+router.delete('/:id', verifyToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+
+    const [rows] = await db.promise().query(
+      'SELECT t.*, tm.company_id as team_company_id FROM tasks t LEFT JOIN teams tm ON COALESCE(t.team_id, (SELECT team_id FROM projects WHERE id = t.project_id)) = tm.id WHERE t.id = ?',
+      [taskId]
+    );
+
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+
+    const task = rows[0];
+    const isAssigned = String(task.assigned_to) === String(req.user.id);
+    const isOwner = String(task.created_by) === String(req.user.id);
+    const isAdmin = req.user.role === 'admin' && (!req.user.company_id || !task.team_company_id || String(req.user.company_id) === String(task.team_company_id));
+
+    if (!isAdmin && !isAssigned && !isOwner) return res.status(403).json({ error: 'Not authorized' });
+
+    await db.promise().query('DELETE FROM tasks WHERE id = ?', [taskId]);
+    return res.json({ message: 'Task deleted' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Task delete failed' });
   }
 });
 
