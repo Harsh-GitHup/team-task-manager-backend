@@ -31,7 +31,21 @@ router.post("/", verifyToken, (req, res) => {
             console.error(insertErr);
             return res.status(500).json({ error: "Message send failed" });
           }
-          return res.status(201).json({ id: insertResult.insertId, message: "Message sent" });
+
+          const newMessage = {
+            id: insertResult.insertId,
+            team_id,
+            sender_id: req.user.id,
+            message,
+            name: req.user.name,
+            email: req.user.email,
+            created_at: new Date()
+          };
+
+          // Broadcast to team members
+          req.app.locals.io.to(`team_${team_id}`).emit("new_message", newMessage);
+
+          return res.status(201).json({ id: insertResult.insertId, message: "Message sent", data: newMessage });
         }
       );
     }
