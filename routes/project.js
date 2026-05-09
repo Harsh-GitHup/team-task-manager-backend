@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { logActivity } = require('./activity');
+
 
 // Create project (company admin OR team head)
 router.post('/', verifyToken, (req, res) => {
@@ -39,6 +41,8 @@ router.post('/', verifyToken, (req, res) => {
           console.error(pErr);
           return res.status(500).json({ error: 'Project creation failed' });
         }
+        logActivity(`created project **${title}**`, 'project', pRes.insertId, req.user.id, req.user.company_id);
+        if (req.app.locals.io) req.app.locals.io.emit("refresh_projects");
         res.status(201).json({ id: pRes.insertId, message: 'Project created' });
       });
     }
@@ -50,7 +54,7 @@ router.get('/', verifyToken, (req, res) => {
   try {
     const companyFilter = req.user.company_id || null;
     db.query(
-      "SELECT p.* FROM projects p JOIN teams t ON p.team_id = t.id WHERE t.company_id = ?",
+      "SELECT p.* FROM projects p JOIN teams t ON p.team_id = t.id WHERE t.company_id <=> ?",
       [companyFilter],
       (err, result) => {
         if (err) {
