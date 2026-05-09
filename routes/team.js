@@ -159,4 +159,111 @@ router.get("/:teamId/members", verifyToken, async (req, res) => {
   }
 });
 
+// UPDATE TEAM (admin only)
+router.put("/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (!name || name.trim().length < 3) return res.status(400).json({ error: "Invalid name" });
+
+    const [rows] = await db.promise().query("SELECT company_id FROM teams WHERE id = ?", [id]);
+    if (!rows || rows.length === 0) return res.status(404).json({ error: "Team not found" });
+
+    const team = rows[0];
+    if (!(req.user.role === "admin" && (!req.user.company_id || !team.company_id || String(req.user.company_id) === String(team.company_id)))) {
+      return res.status(403).json({ error: "Admin only" });
+    }
+
+    await db.promise().query("UPDATE teams SET name = ? WHERE id = ?", [name.trim(), id]);
+    return res.json({ message: "Team updated" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// DELETE TEAM (admin only)
+router.delete("/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [rows] = await db.promise().query("SELECT company_id FROM teams WHERE id = ?", [id]);
+    if (!rows || rows.length === 0) return res.status(404).json({ error: "Team not found" });
+
+    const team = rows[0];
+    if (!(req.user.role === "admin" && (!req.user.company_id || !team.company_id || String(req.user.company_id) === String(team.company_id)))) {
+      return res.status(403).json({ error: "Admin only" });
+    }
+
+    await db.promise().beginTransaction();
+    try {
+      await db.promise().query("DELETE FROM messages WHERE team_id = ?", [id]);
+      await db.promise().query("DELETE FROM tasks WHERE team_id = ?", [id]);
+      await db.promise().query("DELETE FROM projects WHERE team_id = ?", [id]);
+      await db.promise().query("DELETE FROM team_members WHERE team_id = ?", [id]);
+      await db.promise().query("DELETE FROM teams WHERE id = ?", [id]);
+      await db.promise().commit();
+      return res.json({ message: "Team deleted" });
+    } catch (innerErr) {
+      await db.promise().rollback();
+      throw innerErr;
+    }
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// UPDATE TEAM MEMBER ROLE (admin only)
+router.put("/:teamId/members/:userId", verifyToken, async (req, res) => {
+  try {
+    const { teamId, userId } = req.params;
+    const { role } = req.body;
+    if (!["member", "head"].includes(role)) return res.status(400).json({ error: "Invalid role" });
+
+    const [rows] = await db.promise().query("SELECT company_id FROM teams WHERE id = ?", [teamId]);
+    if (!rows || rows.length === 0) return res.status(404).json({ error: "Team not found" });
+
+    const team = rows[0];
+    if (!(req.user.role === "admin" && (!req.user.company_id || !team.company_id || String(req.user.company_id) === String(team.company_id)))) {
+      return res.status(403).json({ error: "Admin only" });
+    }
+
+    await db.promise().query(
+      "INSERT IGNORE INTO team_members (team_id, user_id, role) VALUES (?, ?, 'member')",
+      [teamId, userId]
+    );
+    await db.promise().query(
+      "UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ?",
+      [role, teamId, userId]
+    );
+
+    return res.json({ message: "Team member updated" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// REMOVE TEAM MEMBER (admin only)
+router.delete("/:teamId/members/:userId", verifyToken, async (req, res) => {
+  try {
+    const { teamId, userId } = req.params;
+
+    const [rows] = await db.promise().query("SELECT company_id FROM teams WHERE id = ?", [teamId]);
+    if (!rows || rows.length === 0) return res.status(404).json({ error: "Team not found" });
+
+    const team = rows[0];
+    if (!(req.user.role === "admin" && (!req.user.company_id || !team.company_id || String(req.user.company_id) === String(team.company_id)))) {
+      return res.status(403).json({ error: "Admin only" });
+    }
+
+    await db.promise().query("DELETE FROM team_members WHERE team_id = ? AND user_id = ?", [teamId, userId]);
+    return res.json({ message: "Team member removed" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
