@@ -7,7 +7,7 @@ const { logActivity } = require('./activity');
 
 // Create project (company admin OR team head)
 router.post('/', verifyToken, (req, res) => {
-  const { title, description, team_id, color } = req.body;
+  const { title, description, team_id, color, emoji } = req.body;
   if (!title || !team_id) return res.status(400).json({ error: 'Missing fields' });
 
   // validate team and company
@@ -36,7 +36,7 @@ router.post('/', verifyToken, (req, res) => {
     });
 
     function doInsert() {
-      db.query("INSERT INTO projects (title, description, color, team_id, created_by) VALUES (?, ?, ?, ?, ?)", [title, description || '', color || '#7c6aff', team_id, req.user.id], (pErr, pRes) => {
+      db.query("INSERT INTO projects (title, description, color, emoji, team_id, created_by) VALUES (?, ?, ?, ?, ?, ?)", [title, description || '', color || '#7c6aff', emoji || '📁', team_id, req.user.id], (pErr, pRes) => {
         if (pErr) {
           console.error(pErr);
           return res.status(500).json({ error: 'Project creation failed' });
@@ -77,7 +77,7 @@ module.exports = router;
 router.put('/:id', verifyToken, async (req, res) => {
   try {
     const projectId = req.params.id;
-    const { title, description, team_id, color } = req.body;
+    const { title, description, team_id, color, emoji } = req.body;
 
     const [rows] = await db.promise().query(
       'SELECT p.*, t.company_id as team_company_id FROM projects p LEFT JOIN teams t ON p.team_id = t.id WHERE p.id = ?',
@@ -99,11 +99,12 @@ router.put('/:id', verifyToken, async (req, res) => {
     const nextTitle = title ?? project.title;
     const nextDescription = description ?? project.description ?? '';
     const nextColor = color ?? project.color ?? '#7c6aff';
+    const nextEmoji = emoji ?? project.emoji ?? '📁';
     const nextTeamId = team_id ?? project.team_id;
 
     await db.promise().query(
-      'UPDATE projects SET title = ?, description = ?, color = ?, team_id = ? WHERE id = ?',
-      [nextTitle, nextDescription, nextColor, nextTeamId, projectId]
+      'UPDATE projects SET title = ?, description = ?, color = ?, emoji = ?, team_id = ? WHERE id = ?',
+      [nextTitle, nextDescription, nextColor, nextEmoji, nextTeamId, projectId]
     );
 
     return res.json({ message: 'Project updated' });

@@ -26,6 +26,7 @@ const schemaStatements = [
     title VARCHAR(255) NOT NULL,
     description TEXT,
     color VARCHAR(32) DEFAULT '#7c6aff',
+    emoji VARCHAR(16) DEFAULT '📁',
     created_by INT,
     team_id INT,
     company_id INT DEFAULT NULL,
@@ -124,6 +125,11 @@ async function initializeSchema(db) {
     await promiseDb.query("ALTER TABLE projects ADD COLUMN color VARCHAR(32) DEFAULT '#7c6aff' AFTER description");
   }
 
+  const [projectsEmoji] = await promiseDb.query("SHOW COLUMNS FROM projects LIKE 'emoji'");
+  if (projectsEmoji.length === 0) {
+    await promiseDb.query("ALTER TABLE projects ADD COLUMN emoji VARCHAR(16) DEFAULT '📁' AFTER color");
+  }
+
   const [teamsCompany] = await promiseDb.query("SHOW COLUMNS FROM teams LIKE 'company_id'");
   if (teamsCompany.length === 0) {
     await promiseDb.query("ALTER TABLE teams ADD COLUMN company_id INT NULL AFTER admin_id");
@@ -175,7 +181,7 @@ async function initializeSchema(db) {
   // Seed admin user with default company
   await promiseDb.query(
     `INSERT IGNORE INTO users (id, name, email, password, role, company_id)
-     VALUES (1, 'Admin', 'admin@team.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', ?)`,
+     VALUES (1, 'Alex', 'admin@team.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', ?)`,
     [defaultCompanyId]
   );
 
@@ -184,8 +190,6 @@ async function initializeSchema(db) {
     "UPDATE users SET company_id = ? WHERE id = 1 AND company_id IS NULL",
     [defaultCompanyId]
   );
-
-  console.log("✅ Database schema ready");
 }
 
 module.exports = { initializeSchema };
