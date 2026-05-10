@@ -124,7 +124,13 @@ router.get("/", verifyToken, async (req, res) => {
   try {
     const companyFilter = req.user.company_id || null;
     const [rows] = await db.promise().query(
-      "SELECT t.*, u.name as admin_name FROM teams t JOIN team_members tm ON t.id = tm.team_id JOIN users u ON t.admin_id = u.id WHERE tm.user_id = ? AND (t.company_id <=> ? OR ? IS NULL)",
+      `SELECT t.*, u.name as admin_name,
+        (SELECT COUNT(*) FROM team_members tm2 WHERE tm2.team_id = t.id) as member_count
+       FROM teams t 
+       JOIN team_members tm ON t.id = tm.team_id 
+       JOIN users u ON t.admin_id = u.id 
+       WHERE tm.user_id = ? AND (t.company_id <=> ? OR ? IS NULL)
+       GROUP BY t.id`,
       [req.user.id, companyFilter, companyFilter]
     );
     return res.json(rows);
@@ -195,18 +201,21 @@ router.delete("/:id", verifyToken, async (req, res) => {
       return res.status(403).json({ error: "Admin only" });
     }
 
-    await db.promise().beginTransaction();
+    const conn = await db.promise().getConnection();
     try {
-      await db.promise().query("DELETE FROM messages WHERE team_id = ?", [id]);
-      await db.promise().query("DELETE FROM tasks WHERE team_id = ?", [id]);
-      await db.promise().query("DELETE FROM projects WHERE team_id = ?", [id]);
-      await db.promise().query("DELETE FROM team_members WHERE team_id = ?", [id]);
-      await db.promise().query("DELETE FROM teams WHERE id = ?", [id]);
-      await db.promise().commit();
+      await conn.beginTransaction();
+      await conn.query("DELETE FROM messages WHERE team_id = ?", [id]);
+      await conn.query("DELETE FROM tasks WHERE team_id = ?", [id]);
+      await conn.query("DELETE FROM projects WHERE team_id = ?", [id]);
+      await conn.query("DELETE FROM team_members WHERE team_id = ?", [id]);
+      await conn.query("DELETE FROM teams WHERE id = ?", [id]);
+      await conn.commit();
       return res.json({ message: "Team deleted" });
     } catch (innerErr) {
-      await db.promise().rollback();
+      await conn.rollback();
       throw innerErr;
+    } finally {
+      conn.release();
     }
   } catch (err) {
     console.error(err);
