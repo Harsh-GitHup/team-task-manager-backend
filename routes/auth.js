@@ -23,25 +23,38 @@ router.post("/signup", async (req, res) => {
             try {
                 const hash = bcrypt.hashSync(password, 10);
                 let companyId = null;
+                let invite = null;
 
                 if (invite_token) {
                     const [rows] = await db.promise().query("SELECT * FROM invite_tokens WHERE token = ?", [invite_token]);
                     if (!rows || rows.length === 0) return res.status(400).json({ error: 'Invalid invite token' });
-                    const invite = rows[0];
+                    invite = rows[0];
+                    
                     if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
                         return res.status(400).json({ error: 'Invite expired' });
                     }
                     companyId = invite.company_id;
-                    // optionally delete token
-                    await db.promise().query("DELETE FROM invite_tokens WHERE id = ?", [invite.id]);
                 }
 
                 const userRole = role === 'admin' ? 'admin' : 'user';
 
-                await db.promise().query(
+                const [userResult] = await db.promise().query(
                     "INSERT INTO users (name, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
                     [name, email, hash, userRole, companyId]
                 );
+                const newUserId = userResult.insertId;
+
+                // Handle team auto-join if invite exists
+                if (invite) {
+                    if (invite.team_id) {
+                        await db.promise().query(
+                            "INSERT IGNORE INTO team_members (team_id, user_id, role) VALUES (?, ?, 'member')",
+                            [invite.team_id, newUserId]
+                        );
+                    }
+                    // delete token after use
+                    await db.promise().query("DELETE FROM invite_tokens WHERE id = ?", [invite.id]);
+                }
 
                 res.status(201).json({ message: 'User created' });
             } catch (e) {
@@ -97,10 +110,6 @@ router.post("/login", (req, res) => {
 router.get('/users', verifyToken, isAdmin, (req, res) => {
     try {
         const companyId = req.user.company_id || null;
-        if (!companyId) {
-            // if company is null, return only system-level admin? deny for safety
-            return res.status(400).json({ error: 'Company context required' });
-        }
         db.query("SELECT id, name, email, role FROM users WHERE company_id <=> ?", [companyId], (err, result) => {
             if (err) {
                 console.error(err);
@@ -115,4 +124,3 @@ router.get('/users', verifyToken, isAdmin, (req, res) => {
 });
 
 module.exports = router;
-

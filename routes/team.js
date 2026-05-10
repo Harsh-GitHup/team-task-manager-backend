@@ -122,17 +122,34 @@ router.post("/set-head", verifyToken, async (req, res) => {
 // GET MY TEAMS (only teams in same company or membership)
 router.get("/", verifyToken, async (req, res) => {
   try {
+    const isAdmin = req.user.role === "admin";
     const companyFilter = req.user.company_id || null;
-    const [rows] = await db.promise().query(
-      `SELECT t.*, u.name as admin_name,
-        (SELECT COUNT(*) FROM team_members tm2 WHERE tm2.team_id = t.id) as member_count
-       FROM teams t 
-       JOIN team_members tm ON t.id = tm.team_id 
-       JOIN users u ON t.admin_id = u.id 
-       WHERE tm.user_id = ? AND (t.company_id <=> ? OR ? IS NULL)
-       GROUP BY t.id`,
-      [req.user.id, companyFilter, companyFilter]
-    );
+
+    let query = "";
+    let params = [];
+
+    if (isAdmin) {
+      query = `
+        SELECT t.*, u.name as admin_name,
+          (SELECT COUNT(*) FROM team_members tm2 WHERE tm2.team_id = t.id) as member_count
+        FROM teams t 
+        JOIN users u ON t.admin_id = u.id 
+        WHERE (t.company_id <=> ? OR ? IS NULL)
+        GROUP BY t.id`;
+      params = [companyFilter, companyFilter];
+    } else {
+      query = `
+        SELECT t.*, u.name as admin_name,
+          (SELECT COUNT(*) FROM team_members tm2 WHERE tm2.team_id = t.id) as member_count
+        FROM teams t 
+        JOIN team_members tm ON t.id = tm.team_id 
+        JOIN users u ON t.admin_id = u.id 
+        WHERE tm.user_id = ? AND (t.company_id <=> ? OR ? IS NULL)
+        GROUP BY t.id`;
+      params = [req.user.id, companyFilter, companyFilter];
+    }
+
+    const [rows] = await db.promise().query(query, params);
     return res.json(rows);
   } catch (err) {
     console.error(err);

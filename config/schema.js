@@ -74,12 +74,14 @@ const schemaStatements = [
     id INT AUTO_INCREMENT PRIMARY KEY,
     token VARCHAR(255) NOT NULL UNIQUE,
     company_id INT,
+    team_id INT DEFAULT NULL,
     email VARCHAR(255) DEFAULT NULL,
     expires_at DATETIME DEFAULT NULL,
     created_by INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_invite_company FOREIGN KEY (company_id) REFERENCES companies(id),
-    CONSTRAINT fk_invite_creator FOREIGN KEY (created_by) REFERENCES users(id)
+    CONSTRAINT fk_invite_creator FOREIGN KEY (created_by) REFERENCES users(id),
+    CONSTRAINT fk_invite_team FOREIGN KEY (team_id) REFERENCES teams(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS activities (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -190,6 +192,12 @@ async function initializeSchema(db) {
     "UPDATE users SET company_id = ? WHERE id = 1 AND company_id IS NULL",
     [defaultCompanyId]
   );
+
+  const [inviteTeamColumns] = await promiseDb.query("SHOW COLUMNS FROM invite_tokens LIKE 'team_id'");
+  if (inviteTeamColumns.length === 0) {
+    await promiseDb.query("ALTER TABLE invite_tokens ADD COLUMN team_id INT NULL AFTER company_id");
+    await promiseDb.query("ALTER TABLE invite_tokens ADD CONSTRAINT fk_invite_team FOREIGN KEY (team_id) REFERENCES teams(id)");
+  }
 }
 
 module.exports = { initializeSchema };
