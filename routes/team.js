@@ -168,8 +168,12 @@ router.get("/:teamId/members", verifyToken, async (req, res) => {
       return res.status(403).json({ error: "Cross-company access denied" });
     }
 
+    const isCompanyAdmin = req.user.role === "admin" && req.user.company_id === teamCompany;
     const [existsRows] = await db.promise().query("SELECT 1 FROM team_members WHERE team_id=? AND user_id=? LIMIT 1", [teamId, req.user.id]);
-    if (!existsRows || existsRows.length === 0) return res.status(403).json({ error: "Not a member" });
+    
+    if (!isCompanyAdmin && (!existsRows || existsRows.length === 0)) {
+      return res.status(403).json({ error: "Not a member" });
+    }
 
     const [members] = await db.promise().query(
       "SELECT users.id, users.name, users.email, tm.role FROM team_members tm JOIN users ON users.id = tm.user_id WHERE tm.team_id=?",
