@@ -61,21 +61,71 @@ router.post('/', verifyToken, (req, res) => {
   });
 });
 
-// GET projects visible to user (company scope)
-router.get('/', verifyToken, (req, res) => {
+// GET projects visible to user (company scope for admins, team scope for others)
+router.get('/', verifyToken, async (req, res) => {
   try {
+    const { page = 1, limit = 20, search = '' } = req.query;
+    const offset = (Number.parseInt(page) - 1) * Number.parseInt(limit);
     const companyFilter = req.user.company_id || null;
-    db.query(
-      "SELECT p.* FROM projects p JOIN teams t ON p.team_id = t.id WHERE t.company_id <=> ?",
-      [companyFilter],
-      (err, result) => {
-        if (err) {
-          console.error(err);
-          return res.status(500).json({ error: 'Could not fetch projects' });
-        }
-        res.json(result);
+    const isAdmin = req.user.role === 'admin';
+
+    let query = "";
+    let countQuery = "";
+    let params = [];
+
+    if (isAdmin) {
+      query = `
+        SELECT p.*, t.name as team_name 
+        FROM projects p 
+        JOIN teams t ON p.team_id = t.id 
+        WHERE t.company_id <=> ?
+      `;
+      countQuery = `
+        SELECT COUNT(*) as total 
+        FROM projects p 
+        JOIN teams t ON p.team_id = t.id 
+        WHERE t.company_id <=> ?
+      `;
+      params = [companyFilter];
+    } else {
+      query = `
+        SELECT DISTINCT p.*, t.name as team_name 
+        FROM projects p 
+        JOIN teams t ON p.team_id = t.id 
+        JOIN team_members tm ON tm.team_id = t.id
+        WHERE t.company_id <=> ? AND tm.user_id = ?
+      `;
+      countQuery = `
+        SELECT COUNT(DISTINCT p.id) as total 
+        FROM projects p 
+        JOIN teams t ON p.team_id = t.id 
+        JOIN team_members tm ON tm.team_id = t.id
+        WHERE t.company_id <=> ? AND tm.user_id = ?
+      `;
+      params = [companyFilter, req.user.id];
+    }
+
+    if (search) {
+      query += " AND p.title LIKE ?";
+      countQuery += " AND p.title LIKE ?";
+      params.push(`%${search}%`);
+    }
+
+    query += " ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
+    const fetchParams = [...params, Number.parseInt(limit), offset];
+
+    const [[{ total }]] = await db.promise().query(countQuery, params);
+    const [projects] = await db.promise().query(query, fetchParams);
+
+    res.json({
+      projects,
+      pagination: {
+        total,
+        page: Number.parseInt(page),
+        limit: Number.parseInt(limit),
+        totalPages: Math.ceil(total / Number.parseInt(limit))
       }
-    );
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

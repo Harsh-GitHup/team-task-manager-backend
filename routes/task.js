@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const multer = require('multer');
-const path = require('path');
+const path = require('node:path');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { logActivity } = require('./activity');
 
@@ -90,37 +90,70 @@ router.post('/', verifyToken, (req, res) => {
 });
 
 // GET tasks visible to requester
-router.get('/', verifyToken, (req, res) => {
+router.get('/', verifyToken, async (req, res) => {
   try {
+    const { page = 1, limit = 20, search = '', project_id, status, priority, assigned_to } = req.query;
+    const offset = (Number.parseInt(page) - 1) * Number.parseInt(limit);
     const companyFilter = req.user.company_id || null;
-    if (req.user.role === 'admin' && companyFilter) {
-      // company admin sees all tasks in company
-      db.query(
-        "SELECT t.* FROM tasks t JOIN projects p ON t.project_id = p.id JOIN teams tm ON p.team_id = tm.id WHERE tm.company_id <=> ?",
-        [companyFilter],
-        (err, result) => {
-          if (err) {
-            console.error(err);
-            return res.status(500).json({ error: 'Fetch failed' });
-          }
-          res.json(result);
-        }
-      );
-      return;
+
+    let query = "";
+    let params = [];
+    let countQuery = "";
+
+    const filterSQL = [];
+    const filterParams = [];
+
+    if (search) {
+      filterSQL.push("t.title LIKE ?");
+      filterParams.push(`%${search}%`);
+    }
+    if (project_id) {
+      filterSQL.push("t.project_id = ?");
+      filterParams.push(project_id);
+    }
+    if (status) {
+      filterSQL.push("t.status = ?");
+      filterParams.push(status);
+    }
+    if (priority) {
+      filterSQL.push("t.priority = ?");
+      filterParams.push(priority);
+    }
+    if (assigned_to) {
+      if (assigned_to === 'UNASSIGNED') {
+        filterSQL.push("t.assigned_to IS NULL");
+      } else {
+        filterSQL.push("t.assigned_to = ?");
+        filterParams.push(assigned_to);
+      }
     }
 
-    // regular user: tasks assigned to them or in teams they belong to
-    db.query(
-      "SELECT DISTINCT t.* FROM tasks t LEFT JOIN projects p ON t.project_id = p.id LEFT JOIN teams tm ON p.team_id = tm.id LEFT JOIN team_members tm2 ON tm2.team_id = tm.id WHERE (t.assigned_to = ? OR tm2.user_id = ?) AND (tm.company_id = ? OR ? IS NULL)",
-      [req.user.id, req.user.id, companyFilter, companyFilter],
-      (err, result) => {
-        if (err) {
-          console.error(err);
-          return res.status(500).json({ error: 'Fetch failed' });
-        }
-        res.json(result);
+    if (req.user.role === 'admin' && companyFilter) {
+      const baseFilter = "tm.company_id <=> ?";
+      const allFilters = [baseFilter, ...filterSQL].join(" AND ");
+      query = `SELECT t.*, p.title as project_title FROM tasks t JOIN projects p ON t.project_id = p.id JOIN teams tm ON p.team_id = tm.id WHERE ${allFilters} ORDER BY t.created_at DESC LIMIT ? OFFSET ?`;
+      countQuery = `SELECT COUNT(*) as total FROM tasks t JOIN projects p ON t.project_id = p.id JOIN teams tm ON p.team_id = tm.id WHERE ${allFilters}`;
+      params = [companyFilter, ...filterParams, Number.parseInt(limit), offset];
+    } else {
+      const baseFilter = "(t.assigned_to = ? OR tm2.user_id = ?) AND (tm.company_id = ? OR ? IS NULL)";
+      const allFilters = [baseFilter, ...filterSQL].join(" AND ");
+      query = `SELECT DISTINCT t.*, p.title as project_title FROM tasks t LEFT JOIN projects p ON t.project_id = p.id LEFT JOIN teams tm ON p.team_id = tm.id LEFT JOIN team_members tm2 ON tm2.team_id = tm.id WHERE ${allFilters} ORDER BY t.created_at DESC LIMIT ? OFFSET ?`;
+      countQuery = `SELECT COUNT(DISTINCT t.id) as total FROM tasks t LEFT JOIN projects p ON t.project_id = p.id LEFT JOIN teams tm ON p.team_id = tm.id LEFT JOIN team_members tm2 ON tm2.team_id = tm.id WHERE ${allFilters}`;
+      params = [req.user.id, req.user.id, companyFilter, companyFilter, ...filterParams, Number.parseInt(limit), offset];
+    }
+
+    const [[{ total }]] = await db.promise().query(countQuery, params.slice(0, -2));
+    const [tasks] = await db.promise().query(query, params);
+
+    res.json({
+      tasks,
+      pagination: {
+        total,
+        page: Number.parseInt(page),
+        limit: Number.parseInt(limit),
+        totalPages: Math.ceil(total / Number.parseInt(limit))
       }
-    );
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -213,7 +246,7 @@ router.delete('/:id', verifyToken, async (req, res) => {
     if (!isAdmin && !isAssigned && !isOwner) return res.status(403).json({ error: 'Not authorized' });
 
     await db.promise().query('DELETE FROM tasks WHERE id = ?', [taskId]);
-    
+
     logActivity(`deleted task **${task.title}**`, 'task', taskId, req.user.id, req.user.company_id);
     if (req.app.locals.io) req.app.locals.io.emit("refresh_tasks");
     return res.json({ message: 'Task deleted' });

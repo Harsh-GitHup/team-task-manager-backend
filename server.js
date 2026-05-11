@@ -28,9 +28,16 @@ app.locals.io = io;
 
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
-  
+
   socket.on("join_team", (teamId) => {
     socket.join(`team_${teamId}`);
+  });
+
+  socket.on("join_company", (companyId) => {
+    if (companyId) {
+      socket.join(`company_${companyId}`);
+      console.log(`Socket ${socket.id} joined company_${companyId}`);
+    }
   });
 
   socket.on("disconnect", () => {

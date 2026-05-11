@@ -29,7 +29,7 @@ router.post("/signup", async (req, res) => {
                     const [rows] = await db.promise().query("SELECT * FROM invite_tokens WHERE token = ?", [invite_token]);
                     if (!rows || rows.length === 0) return res.status(400).json({ error: 'Invalid invite token' });
                     invite = rows[0];
-                    
+
                     if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
                         return res.status(400).json({ error: 'Invite expired' });
                     }
@@ -106,11 +106,39 @@ router.post("/login", (req, res) => {
     );
 });
 
-// GET /auth/users - list users in the same company (admin only)
-router.get('/users', verifyToken, isAdmin, (req, res) => {
+// GET /auth/users - list users in the same company (Admins see all, Users see teammates)
+router.get('/users', verifyToken, (req, res) => {
     try {
+        const { search = '' } = req.query;
         const companyId = req.user.company_id || null;
-        db.query("SELECT id, name, email, role FROM users WHERE company_id <=> ?", [companyId], (err, result) => {
+        const isAdmin = req.user.role === 'admin';
+
+        let query = "";
+        let params = [];
+
+        if (isAdmin) {
+            query = "SELECT id, name, email, role FROM users WHERE company_id <=> ?";
+            params = [companyId];
+            if (search) {
+                query += " AND (name LIKE ? OR email LIKE ?)";
+                params.push(`%${search}%`, `%${search}%`);
+            }
+        } else {
+            // Only show users who are in at least one team with the requester
+            query = `
+                SELECT DISTINCT u.id, u.name, u.email, u.role 
+                FROM users u
+                JOIN team_members tm ON u.id = tm.user_id
+                WHERE tm.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?)
+            `;
+            params = [req.user.id];
+            if (search) {
+                query += " AND (u.name LIKE ? OR u.email LIKE ?)";
+                params.push(`%${search}%`, `%${search}%`);
+            }
+        }
+
+        db.query(query, params, (err, result) => {
             if (err) {
                 console.error(err);
                 return res.status(500).json({ error: 'Could not fetch users' });

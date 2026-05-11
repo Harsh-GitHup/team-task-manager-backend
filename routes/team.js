@@ -170,7 +170,7 @@ router.get("/:teamId/members", verifyToken, async (req, res) => {
 
     const isCompanyAdmin = req.user.role === "admin" && req.user.company_id === teamCompany;
     const [existsRows] = await db.promise().query("SELECT 1 FROM team_members WHERE team_id=? AND user_id=? LIMIT 1", [teamId, req.user.id]);
-    
+
     if (!isCompanyAdmin && (!existsRows || existsRows.length === 0)) {
       return res.status(403).json({ error: "Not a member" });
     }

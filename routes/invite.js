@@ -16,11 +16,11 @@ router.post('/', verifyToken, async (req, res) => {
         await db.promise().query(
             'INSERT INTO invite_tokens (token, company_id, team_id, email, expires_at, created_by) VALUES (?, ?, ?, ?, ?, ?)',
             [
-                token, 
-                req.user.company_id || null, 
+                token,
+                req.user.company_id || null,
                 team_id || null,
-                email || null, 
-                expiresAt ? expiresAt.toISOString().slice(0, 19).replace('T', ' ') : null, 
+                email || null,
+                expiresAt ? expiresAt.toISOString().slice(0, 19).replace('T', ' ') : null,
                 req.user.id
             ]
         );
@@ -49,7 +49,7 @@ router.get('/:token', async (req, res) => {
         );
 
         if (!rows || rows.length === 0) return res.status(404).json({ error: 'Invite not found' });
-        
+
         const invite = rows[0];
         if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
             return res.status(400).json({ error: 'Invite expired' });
@@ -70,7 +70,7 @@ router.post('/join', verifyToken, async (req, res) => {
 
         const [rows] = await db.promise().query("SELECT * FROM invite_tokens WHERE token = ?", [token]);
         if (!rows || rows.length === 0) return res.status(404).json({ error: 'Invalid token' });
-        
+
         const invite = rows[0];
         if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
             return res.status(400).json({ error: 'Invite expired' });
