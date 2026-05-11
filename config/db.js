@@ -1,8 +1,12 @@
 const mysql = require('mysql2');
 const dotenv = require('dotenv');
-dotenv.config();
+const path = require('node:path');
+
+// Load .env from the Backend directory regardless of where the script is run from
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const connectionString = process.env.DATABASE_URL || process.env.DATABASE || process.env.DATABASE_URL_DEPRECATED || process.env.DB || '';
+
 // create pool (callback-style)
 const pool = mysql.createPool(connectionString || {
   host: process.env.DB_HOST || 'localhost',
