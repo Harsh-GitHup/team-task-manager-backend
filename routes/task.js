@@ -69,7 +69,19 @@ router.post('/', verifyToken, (req, res) => {
             return res.status(500).json({ error: 'Task creation failed' });
           }
           logActivity(`created task **${title}**`, 'task', tRes.insertId, req.user.id, req.user.company_id);
-          if (req.app.locals.io) req.app.locals.io.emit("refresh_tasks");
+          if (req.app.locals.io) {
+            req.app.locals.io.emit("refresh_tasks");
+            if (req.user.company_id) {
+              req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
+                type: 'task',
+                title: 'New Task',
+                content: `**${title}** was created`,
+                user_id: req.user.id,
+                created_at: new Date().toISOString(),
+                link: '/tasks'
+              });
+            }
+          }
           res.status(201).json({ id: tRes.insertId, message: 'Task created' });
         }
       );
@@ -161,7 +173,19 @@ router.put('/:id', verifyToken, async (req, res) => {
     );
 
     logActivity(`updated task **${nextTitle}** to **${nextStatus}**`, 'task', taskId, req.user.id, req.user.company_id);
-    if (req.app.locals.io) req.app.locals.io.emit("refresh_tasks");
+    if (req.app.locals.io) {
+      req.app.locals.io.emit("refresh_tasks");
+      if (req.user.company_id) {
+        req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
+          type: 'task',
+          title: 'Task Updated',
+          content: `**${nextTitle}** moved to **${nextStatus}**`,
+          user_id: req.user.id,
+          created_at: new Date().toISOString(),
+          link: '/tasks'
+        });
+      }
+    }
     return res.json({ message: 'Task updated' });
   } catch (err) {
     console.error(err);

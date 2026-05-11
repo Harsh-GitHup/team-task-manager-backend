@@ -45,6 +45,11 @@ router.post("/", verifyToken, (req, res) => {
           // Broadcast to team members
           req.app.locals.io.to(`team_${team_id}`).emit("new_message", newMessage);
 
+          // Also broadcast to company for global notifications
+          if (req.user.company_id) {
+            req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_message", newMessage);
+          }
+
           return res.status(201).json({ id: insertResult.insertId, message: "Message sent", data: newMessage });
         }
       );

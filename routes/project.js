@@ -42,7 +42,19 @@ router.post('/', verifyToken, (req, res) => {
           return res.status(500).json({ error: 'Project creation failed' });
         }
         logActivity(`created project **${title}**`, 'project', pRes.insertId, req.user.id, req.user.company_id);
-        if (req.app.locals.io) req.app.locals.io.emit("refresh_projects");
+        if (req.app.locals.io) {
+          req.app.locals.io.emit("refresh_projects");
+          if (req.user.company_id) {
+            req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
+              type: 'project',
+              title: 'New Project',
+              content: `**${title}** was created`,
+              user_id: req.user.id,
+              created_at: new Date().toISOString(),
+              link: '/projects'
+            });
+          }
+        }
         res.status(201).json({ id: pRes.insertId, message: 'Project created' });
       });
     }
@@ -106,6 +118,20 @@ router.put('/:id', verifyToken, async (req, res) => {
       'UPDATE projects SET title = ?, description = ?, color = ?, emoji = ?, team_id = ? WHERE id = ?',
       [nextTitle, nextDescription, nextColor, nextEmoji, nextTeamId, projectId]
     );
+
+    if (req.app.locals.io) {
+      req.app.locals.io.emit("refresh_projects");
+      if (req.user.company_id) {
+        req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
+          type: 'project',
+          title: 'Project Updated',
+          content: `**${nextTitle}** was modified`,
+          user_id: req.user.id,
+          created_at: new Date().toISOString(),
+          link: '/projects'
+        });
+      }
+    }
 
     return res.json({ message: 'Project updated' });
   } catch (err) {
