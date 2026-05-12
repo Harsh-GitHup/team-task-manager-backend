@@ -34,7 +34,7 @@ It supports invite-based onboarding, company isolation through `company_id`, tea
 
 - Uses `dotenv` to load environment variables from `.env`
 - Uses `mysql2` for database queries
-- Uses `bcrypt` to hash passwords
+- Uses `bcryptjs` to hash passwords
 - Uses `jsonwebtoken` to generate and validate JWT tokens
 - Uses `socket.io` to broadcast task, project, and chat updates
 - Uses `company_id` to keep data scoped to the correct tenant
