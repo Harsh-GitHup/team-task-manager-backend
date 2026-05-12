@@ -16,7 +16,12 @@ const storage = multer.diskStorage({
     cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
-const upload = multer({ storage: storage });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 * 1024, // 100 MB
+  },
+});
 
 // Create task (company admin OR team head)
 router.post('/', verifyToken, (req, res) => {
@@ -180,7 +185,7 @@ router.put('/:id', verifyToken, async (req, res) => {
 
     if (!isAdmin && !isAssigned && !isOwner) return res.status(403).json({ error: 'Not authorized' });
 
-    const allowedStatuses = ['Todo', 'In Progress', 'Done'];
+    const allowedStatuses = ['Todo', 'In Progress', 'Review', 'Done'];
     if (status && !allowedStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }

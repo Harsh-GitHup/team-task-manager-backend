@@ -112,63 +112,65 @@ async function initializeSchema(db) {
     await promiseDb.query(statement);
   }
 
-  const [projectTeamColumns] = await promiseDb.query("SHOW COLUMNS FROM projects LIKE 'team_id'");
-  if (projectTeamColumns.length === 0) {
-    await promiseDb.query("ALTER TABLE projects ADD COLUMN team_id INT NULL AFTER description");
-  }
+  // Helper to safely add column
+  const addColumn = async (table, col, definition) => {
+    const [cols] = await promiseDb.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [col]);
+    if (cols.length > 0) return;
 
-  const [projectsCompany] = await promiseDb.query("SHOW COLUMNS FROM projects LIKE 'company_id'");
-  if (projectsCompany.length === 0) {
-    await promiseDb.query("ALTER TABLE projects ADD COLUMN company_id INT NULL AFTER team_id");
-  }
+    try {
+      await promiseDb.query(`ALTER TABLE ${table} ADD COLUMN ${col} ${definition}`);
+    } catch (err) {
+      // Multi-instance startup can race and attempt the same ALTER simultaneously.
+      if (err?.code === 'ER_DUP_FIELDNAME') return;
 
-  const [projectsColor] = await promiseDb.query("SHOW COLUMNS FROM projects LIKE 'color'");
-  if (projectsColor.length === 0) {
-    await promiseDb.query("ALTER TABLE projects ADD COLUMN color VARCHAR(32) DEFAULT '#7c6aff' AFTER description");
-  }
+      // If an AFTER target column does not exist on legacy schemas, retry without positioning.
+      if (err?.code === 'ER_BAD_FIELD_ERROR' && /\s+AFTER\s+/i.test(definition)) {
+        const fallbackDefinition = definition.replace(/\s+AFTER\s+\w+\s*$/i, '').trim();
+        await promiseDb.query(`ALTER TABLE ${table} ADD COLUMN ${col} ${fallbackDefinition}`);
+        return;
+      }
 
-  const [projectsEmoji] = await promiseDb.query("SHOW COLUMNS FROM projects LIKE 'emoji'");
-  if (projectsEmoji.length === 0) {
-    await promiseDb.query("ALTER TABLE projects ADD COLUMN emoji VARCHAR(16) DEFAULT '📁' AFTER color");
-  }
+      throw err;
+    }
+  };
 
-  const [teamsCompany] = await promiseDb.query("SHOW COLUMNS FROM teams LIKE 'company_id'");
-  if (teamsCompany.length === 0) {
-    await promiseDb.query("ALTER TABLE teams ADD COLUMN company_id INT NULL AFTER admin_id");
-  }
+  const ensureTaskStatusEnum = async () => {
+    const [cols] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'status'");
+    if (!cols.length) return;
 
-  const [usersCompany] = await promiseDb.query("SHOW COLUMNS FROM users LIKE 'company_id'");
-  if (usersCompany.length === 0) {
-    await promiseDb.query("ALTER TABLE users ADD COLUMN company_id INT NULL AFTER role");
-  }
+    const type = String(cols[0].Type || '').toLowerCase();
+    if (type.includes("'review'")) return;
 
-  const [teamMemberRole] = await promiseDb.query("SHOW COLUMNS FROM team_members LIKE 'role'");
-  if (teamMemberRole.length === 0) {
-    await promiseDb.query("ALTER TABLE team_members ADD COLUMN role ENUM('member','head') DEFAULT 'member' AFTER user_id");
-  }
+    // Keep existing data, but expand enum values used by the frontend.
+    await promiseDb.query("ALTER TABLE tasks MODIFY COLUMN status ENUM('Todo','In Progress','Review','Done') DEFAULT 'Todo'");
+  };
 
-  const [tasksDescription] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'description'");
-  if (tasksDescription.length === 0) {
-    await promiseDb.query("ALTER TABLE tasks ADD COLUMN description TEXT AFTER team_id");
-  }
+  // Add missing columns if they don't exist (for safe schema evolution)
+  // Projects: team_id, company_id, color, emoji
+  await addColumn('projects', 'team_id', "INT NULL AFTER description");
+  await addColumn('projects', 'company_id', "INT NULL AFTER team_id");
+  await addColumn('projects', 'color', "VARCHAR(32) DEFAULT '#7c6aff' AFTER description");
+  await addColumn('projects', 'emoji', "VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '📁' AFTER color");
 
-  const [tasksPriority] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'priority'");
-  if (tasksPriority.length === 0) {
-    await promiseDb.query("ALTER TABLE tasks ADD COLUMN priority ENUM('low','medium','high') DEFAULT 'medium' AFTER description");
-  }
+  // Teams: company_id, Users: company_id, Team Members: role
+  await addColumn('teams', 'company_id', "INT NULL AFTER admin_id");
+  await addColumn('users', 'company_id', "INT NULL AFTER role");
+  await addColumn('team_members', 'role', "ENUM('member','head') DEFAULT 'member' AFTER user_id");
 
-  const [tasksDueDate] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'due_date'");
-  if (tasksDueDate.length === 0) {
-    await promiseDb.query("ALTER TABLE tasks ADD COLUMN due_date DATE DEFAULT NULL AFTER priority");
-  }
+  // Tasks: description, priority, due_date, created_by
+  await addColumn('tasks', 'description', "TEXT AFTER team_id");
+  await addColumn('tasks', 'priority', "ENUM('low','medium','high') DEFAULT 'medium' AFTER description");
+  await addColumn('tasks', 'due_date', "DATE DEFAULT NULL AFTER priority");
+  await addColumn('tasks', 'created_by', "INT NULL AFTER status");
 
-  const [tasksCreatedBy] = await promiseDb.query("SHOW COLUMNS FROM tasks LIKE 'created_by'");
-  if (tasksCreatedBy.length === 0) {
-    await promiseDb.query("ALTER TABLE tasks ADD COLUMN created_by INT NULL AFTER status");
-  }
+  // Invite Tokens: team_id, email, expires_at, created_by
+  await addColumn('invite_tokens', 'team_id', "INT NULL AFTER company_id");
+  await addColumn('invite_tokens', 'email', "VARCHAR(255) DEFAULT NULL AFTER team_id");
+  await addColumn('invite_tokens', 'expires_at', "DATETIME DEFAULT NULL AFTER email");
+  await addColumn('invite_tokens', 'created_by', "INT NULL AFTER expires_at");
 
-  // create companies table if not exists handled in schemaStatements
-  // create invite_tokens handled in schemaStatements
+  // Align enum with app usage (Task status includes "Review" in UI/routes).
+  await ensureTaskStatusEnum();
 
   // Create default company
   const [companies] = await promiseDb.query("SELECT id FROM companies WHERE name = 'Default'");
@@ -180,24 +182,42 @@ async function initializeSchema(db) {
     defaultCompanyId = companies[0].id;
   }
 
-  // Seed admin user with default company
+  // Seed admin user
   await promiseDb.query(
     `INSERT IGNORE INTO users (id, name, email, password, role, company_id)
      VALUES (1, 'Alex', 'admin@team.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', ?)`,
     [defaultCompanyId]
   );
 
-  // If admin already exists (INSERT IGNORE didn't insert), update company_id
   await promiseDb.query(
     "UPDATE users SET company_id = ? WHERE id = 1 AND company_id IS NULL",
     [defaultCompanyId]
   );
 
-  const [inviteTeamColumns] = await promiseDb.query("SHOW COLUMNS FROM invite_tokens LIKE 'team_id'");
-  if (inviteTeamColumns.length === 0) {
-    await promiseDb.query("ALTER TABLE invite_tokens ADD COLUMN team_id INT NULL AFTER company_id");
-    await promiseDb.query("ALTER TABLE invite_tokens ADD CONSTRAINT fk_invite_team FOREIGN KEY (team_id) REFERENCES teams(id)");
-  }
+  // --- Performance Indexes (Safe Version) ---
+  const addIndex = async (table, indexName, columns) => {
+    try {
+      // For older MySQL, we check if index exists via information_schema or just try/catch
+      await promiseDb.query(`CREATE INDEX ${indexName} ON ${table}(${columns})`);
+    } catch (err) {
+      if (err?.code === 'ER_DUP_KEYNAME') return;
+      if (!String(err?.message || '').includes('already exists')) {
+        console.warn(`Could not create index ${indexName}:`, err.message);
+      }
+    }
+  };
+
+  await addIndex('tasks', 'idx_tasks_project', 'project_id');
+  await addIndex('tasks', 'idx_tasks_assigned', 'assigned_to');
+  await addIndex('tasks', 'idx_tasks_team', 'team_id');
+  await addIndex('projects', 'idx_projects_team', 'team_id');
+  await addIndex('projects', 'idx_projects_company', 'company_id');
+  await addIndex('users', 'idx_users_company', 'company_id');
+  await addIndex('teams', 'idx_teams_company', 'company_id');
+  await addIndex('team_members', 'idx_team_members_team', 'team_id');
+  await addIndex('team_members', 'idx_team_members_user', 'user_id');
+  await addIndex('invite_tokens', 'idx_invite_tokens_team', 'team_id');
+  await addIndex('invite_tokens', 'idx_invite_tokens_email', 'email');
 }
 
 module.exports = { initializeSchema };

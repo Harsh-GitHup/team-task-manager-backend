@@ -16,9 +16,22 @@ const { initializeSchema } = require("./config/schema");
 const app = express();
 const server = http.createServer(app);
 
+const normalizeOrigin = (origin) => String(origin || "").trim().replace(/\/$/, "");
+const corsAllowlist = String(process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map(normalizeOrigin)
+  .filter(Boolean);
+const isCorsRestricted = corsAllowlist.length > 0;
+const corsOriginChecker = (origin, callback) => {
+  // Allow non-browser/server-to-server and local tooling requests with no Origin header.
+  if (!origin) return callback(null, true);
+  if (!isCorsRestricted) return callback(null, true);
+  return callback(null, corsAllowlist.includes(normalizeOrigin(origin)));
+};
+
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: isCorsRestricted ? corsAllowlist : true,
     methods: ["GET", "POST", "PUT", "DELETE"]
   }
 });
@@ -45,7 +58,11 @@ io.on("connection", (socket) => {
   });
 });
 
-app.use(cors());
+app.use(cors({
+  origin: corsOriginChecker,
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true,
+}));
 app.use(express.json());
 
 let schemaReady = false;
