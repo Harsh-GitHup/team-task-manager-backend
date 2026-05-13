@@ -112,6 +112,35 @@ router.post("/set-head", verifyToken, async (req, res) => {
     );
     await db.promise().query("UPDATE team_members SET role='head' WHERE team_id=? AND user_id=?", [team_id, user_id]);
 
+    // Also update user role to 'head' in users table
+    await db.promise().query("UPDATE users SET role='head' WHERE id=?", [user_id]);
+
+    // Emit real-time update via Socket.io
+    const io = req.app.locals.io;
+    if (io) {
+      const team = tRows[0];
+      const company_id = team.company_id;
+
+      // Send role update to the user and all admins in the company
+      io.to(`company_${company_id}`).emit("role_changed", {
+        user_id: user_id,
+        new_role: 'head',
+        team_id: team_id,
+        timestamp: new Date().toISOString()
+      });
+
+      // Send notification to the assigned head user and all company admins
+      io.to(`company_${company_id}`).emit("new_notification", {
+        type: 'role_change',
+        user_id: req.user.id,
+        title: 'Team Head Assignment',
+        content: `User has been assigned as head of a team`,
+        team_id: team_id,
+        affected_user_id: user_id,
+        created_at: new Date().toISOString()
+      });
+    }
+
     return res.json({ message: "Team head assigned" });
   } catch (err) {
     console.error(err);
@@ -267,6 +296,40 @@ router.put("/:teamId/members/:userId", verifyToken, async (req, res) => {
       "UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ?",
       [role, teamId, userId]
     );
+
+    // Also update user role in users table based on team_members role
+    if (role === 'head') {
+      await db.promise().query("UPDATE users SET role='head' WHERE id=?", [userId]);
+    } else if (role === 'member') {
+      // When demoting from head to member, set user role back to base 'user' role
+      await db.promise().query("UPDATE users SET role='user' WHERE id=? AND role='head'", [userId]);
+    }
+
+    // Emit real-time update via Socket.io
+    const io = req.app.locals.io;
+    if (io) {
+      const company_id = team.company_id;
+
+      // Send role update to the user and all admins in the company
+      io.to(`company_${company_id}`).emit("role_changed", {
+        user_id: userId,
+        new_role: role,
+        team_id: teamId,
+        timestamp: new Date().toISOString()
+      });
+
+      // Send notification
+      const roleLabel = role === 'head' ? 'Team Head' : 'Team Member';
+      io.to(`company_${company_id}`).emit("new_notification", {
+        type: 'role_change',
+        user_id: req.user.id,
+        title: `Role Updated to ${roleLabel}`,
+        content: `User role has been updated`,
+        team_id: teamId,
+        affected_user_id: userId,
+        created_at: new Date().toISOString()
+      });
+    }
 
     return res.json({ message: "Team member updated" });
   } catch (err) {
