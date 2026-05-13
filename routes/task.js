@@ -6,6 +6,22 @@ const path = require('node:path');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { logActivity } = require('./activity');
 
+function normalizeDueDate(value) {
+  if (value === null || value === undefined || value === '') return { value: null };
+
+  const raw = String(value).trim();
+  if (!raw) return { value: null };
+
+  // Accept both YYYY-MM-DD and full ISO strings like 2026-09-22T00:00:00.000Z.
+  const isoPrefix = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoPrefix) return { value: isoPrefix[1] };
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return { error: 'Invalid due_date' };
+
+  return { value: parsed.toISOString().slice(0, 10) };
+}
+
 // Configure Multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -27,6 +43,11 @@ const upload = multer({
 router.post('/', verifyToken, (req, res) => {
   const { title, description, team_id, project_id, assigned_to, priority, due_date } = req.body;
   if (!title || !team_id || !project_id) return res.status(400).json({ error: 'Missing fields' });
+
+  const normalizedCreateDueDate = normalizeDueDate(due_date);
+  if (normalizedCreateDueDate.error) {
+    return res.status(400).json({ error: normalizedCreateDueDate.error });
+  }
 
   // validate team/project/company
   db.query("SELECT t.company_id FROM teams t JOIN projects p ON p.team_id = t.id WHERE t.id = ? AND p.id = ?", [team_id, project_id], (err, result) => {
@@ -67,7 +88,7 @@ router.post('/', verifyToken, (req, res) => {
     function doInsert() {
       db.query(
         "INSERT INTO tasks (title, description, priority, due_date, team_id, project_id, assigned_to, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 'Todo', ?)",
-        [title, description || '', priority || 'medium', due_date || null, team_id, project_id, assigned_to || null, req.user.id],
+        [title, description || '', priority || 'medium', normalizedCreateDueDate.value, team_id, project_id, assigned_to || null, req.user.id],
         (tErr, tRes) => {
           if (tErr) {
             console.error(tErr);
@@ -213,8 +234,12 @@ router.put('/:id', verifyToken, async (req, res) => {
       params.push(priority);
     }
     if (due_date !== undefined) {
+      const normalizedDueDate = normalizeDueDate(due_date);
+      if (normalizedDueDate.error) {
+        return res.status(400).json({ error: normalizedDueDate.error });
+      }
       updates.push('due_date = ?');
-      params.push(due_date ?? null);
+      params.push(normalizedDueDate.value);
     }
     if (status !== undefined) {
       updates.push('status = ?');
