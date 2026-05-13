@@ -196,28 +196,62 @@ router.put('/:id', verifyToken, async (req, res) => {
       }
     }
 
-    const nextTitle = title ?? task.title;
-    const nextDescription = description ?? task.description ?? '';
-    const nextPriority = priority ?? task.priority ?? 'medium';
-    const nextDueDate = due_date ?? task.due_date ?? null;
-    const nextStatus = status ?? task.status;
-    const nextAssigned = assigned_to ?? task.assigned_to;
-    const nextProject = project_id ?? task.project_id;
-    const nextTeam = team_id ?? task.team_id ?? task.project_team_id;
+    // Build dynamic update query to only update provided fields
+    const updates = [];
+    const params = [];
+
+    if (title !== undefined) {
+      updates.push('title = ?');
+      params.push(title);
+    }
+    if (description !== undefined) {
+      updates.push('description = ?');
+      params.push(description ?? '');
+    }
+    if (priority !== undefined) {
+      updates.push('priority = ?');
+      params.push(priority);
+    }
+    if (due_date !== undefined) {
+      updates.push('due_date = ?');
+      params.push(due_date ?? null);
+    }
+    if (status !== undefined) {
+      updates.push('status = ?');
+      params.push(status);
+    }
+    if (assigned_to !== undefined) {
+      updates.push('assigned_to = ?');
+      params.push(assigned_to ?? null);
+    }
+    if (project_id !== undefined) {
+      updates.push('project_id = ?');
+      params.push(project_id ?? null);
+    }
+    if (team_id !== undefined) {
+      updates.push('team_id = ?');
+      params.push(team_id ?? null);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    params.push(taskId);
 
     await db.promise().query(
-      'UPDATE tasks SET title = ?, description = ?, priority = ?, due_date = ?, status = ?, assigned_to = ?, project_id = ?, team_id = ? WHERE id = ?',
-      [nextTitle, nextDescription, nextPriority, nextDueDate, nextStatus, nextAssigned || null, nextProject || null, nextTeam || null, taskId]
+      `UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`,
+      params
     );
 
-    logActivity(`updated task **${nextTitle}** to **${nextStatus}**`, 'task', taskId, req.user.id, req.user.company_id);
+    logActivity(`updated task **${title ?? task.title}** to **${status ?? task.status}**`, 'task', taskId, req.user.id, req.user.company_id);
     if (req.app.locals.io) {
       req.app.locals.io.emit("refresh_tasks");
       if (req.user.company_id) {
         req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
           type: 'task',
           title: 'Task Updated',
-          content: `**${nextTitle}** moved to **${nextStatus}**`,
+          content: `**${title ?? task.title}** moved to **${status ?? task.status}**`,
           user_id: req.user.id,
           created_at: new Date().toISOString(),
           link: '/tasks'
