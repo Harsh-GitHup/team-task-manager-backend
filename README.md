@@ -1,4 +1,4 @@
-# Task Manager Backend
+# Team Task Manager - Backend
 
 This folder contains the Express + MySQL API for the company-scoped Team Task Manager app. It supports invite-based onboarding, company isolation through `company_id`, team roles, activity tracking, file uploads, and Socket.IO updates for projects, tasks, chat, and notifications.
 
