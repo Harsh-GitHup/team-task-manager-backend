@@ -17,8 +17,8 @@ const app = express();
 const server = http.createServer(app);
 
 const normalizeOrigin = (origin) => String(origin || "").trim().replace(/\/$/, "");
-const corsAllowlist = String(process.env.CORS_ORIGIN || "")
-  .split(",")
+const corsAllowlist = [process.env.CORS_ORIGIN, process.env.FRONTEND_URL]
+  .flatMap((value) => String(value || "").split(","))
   .map(normalizeOrigin)
   .filter(Boolean);
 const isCorsRestricted = corsAllowlist.length > 0;
