@@ -1,5 +1,18 @@
+# Railway Nixpacks configuration for Team Task Manager - Backend API
+# This file tells Railway which directory contains the app to deploy
+
+[build]
+# Set working directory for the build
+pkgManager = "npm"
+
 [phases.install]
+# Install only production dependencies
 cmds = ["npm ci --omit=dev"]
 
+[phases.build]
+# Optional: add build phase if needed
+# cmds = ["npm run build"]
+
 [start]
+# Start the backend server
 cmd = "npm start"
