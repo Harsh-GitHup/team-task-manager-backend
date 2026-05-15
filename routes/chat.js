@@ -38,8 +38,10 @@ router.post("/", verifyToken, (req, res) => {
             sender_id: req.user.id,
             message,
             name: req.user.name,
+            sender_name: req.user.name,
             email: req.user.email,
-            created_at: new Date()
+            sender_email: req.user.email,
+            created_at: new Date().toISOString()
           };
 
           // Broadcast to team members
@@ -61,11 +63,11 @@ router.post("/", verifyToken, (req, res) => {
 router.get("/:teamId", verifyToken, (req, res) => {
   const teamId = req.params.teamId;
   db.query(
-    `SELECT m.*, u.name, u.email 
+    `SELECT m.id, m.team_id, m.sender_id, m.message, DATE_FORMAT(m.created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS created_at, u.name, u.email 
      FROM messages m 
      JOIN users u ON u.id = m.sender_id 
-     WHERE m.team_id=? AND EXISTS(SELECT 1 FROM team_members WHERE team_id=? AND user_id=?)
-     ORDER BY m.created_at DESC LIMIT 100`,
+    WHERE m.team_id=? AND EXISTS(SELECT 1 FROM team_members WHERE team_id=? AND user_id=?)
+    ORDER BY m.created_at ASC LIMIT 100`,
     [teamId, teamId, req.user.id],
     (err, result) => {
       if (err) return res.status(500).json({ error: "Chat fetch failed" });

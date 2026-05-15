@@ -13,7 +13,8 @@ function normalizeDueDate(value) {
   if (!raw) return { value: null };
 
   // Accept both YYYY-MM-DD and full ISO strings like 2026-09-22T00:00:00.000Z.
-  const isoPrefix = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  const isoPrefixRegex = /^(\d{4}-\d{2}-\d{2})/;
+  const isoPrefix = isoPrefixRegex.exec(raw);
   if (isoPrefix) return { value: isoPrefix[1] };
 
   const parsed = new Date(raw);
