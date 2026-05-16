@@ -100,12 +100,13 @@ router.post('/', verifyToken, (req, res) => {
           if (req.app.locals.io) {
             req.app.locals.io.emit("refresh_tasks");
             if (req.user.company_id) {
+              const eventTimestamp = new Date().toISOString();
               req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
                 type: 'task',
                 title: 'New Task',
                 content: `**${title}** was created`,
                 user_id: req.user.id,
-                created_at: new Date().toISOString(),
+                created_at: eventTimestamp,
                 link: '/tasks'
               });
               queueCompanyNotification(req.user.company_id, {
@@ -114,8 +115,9 @@ router.post('/', verifyToken, (req, res) => {
                 title: 'New Task',
                 content: `**${title}** was created`,
                 teamId: team_id,
+                sourceEventKey: `task:create:${tRes.insertId}:${eventTimestamp}`,
                 link: '/tasks',
-                createdAt: new Date().toISOString(),
+                createdAt: eventTimestamp,
               });
             }
           }
@@ -284,12 +286,13 @@ router.put('/:id', verifyToken, async (req, res) => {
     if (req.app.locals.io) {
       req.app.locals.io.emit("refresh_tasks");
       if (req.user.company_id) {
+        const eventTimestamp = new Date().toISOString();
         req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
           type: 'task',
           title: 'Task Updated',
           content: `**${title ?? task.title}** moved to **${status ?? task.status}**`,
           user_id: req.user.id,
-          created_at: new Date().toISOString(),
+          created_at: eventTimestamp,
           link: '/tasks'
         });
         queueCompanyNotification(req.user.company_id, {
@@ -298,8 +301,9 @@ router.put('/:id', verifyToken, async (req, res) => {
           title: 'Task Updated',
           content: `**${title ?? task.title}** moved to **${status ?? task.status}**`,
           teamId: task.team_id || team_id || null,
+          sourceEventKey: `task:update:${taskId}:${eventTimestamp}`,
           link: '/tasks',
-          createdAt: new Date().toISOString(),
+          createdAt: eventTimestamp,
         });
       }
     }

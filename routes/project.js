@@ -46,12 +46,13 @@ router.post('/', verifyToken, (req, res) => {
         if (req.app.locals.io) {
           req.app.locals.io.emit("refresh_projects");
           if (req.user.company_id) {
+            const eventTimestamp = new Date().toISOString();
             req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
               type: 'project',
               title: 'New Project',
               content: `**${title}** was created`,
               user_id: req.user.id,
-              created_at: new Date().toISOString(),
+              created_at: eventTimestamp,
               link: '/projects'
             });
             queueCompanyNotification(req.user.company_id, {
@@ -60,8 +61,9 @@ router.post('/', verifyToken, (req, res) => {
               title: 'New Project',
               content: `**${title}** was created`,
               teamId: team_id,
+              sourceEventKey: `project:create:${pRes.insertId}:${eventTimestamp}`,
               link: '/projects',
-              createdAt: new Date().toISOString(),
+              createdAt: eventTimestamp,
             });
           }
         }
@@ -182,12 +184,13 @@ router.put('/:id', verifyToken, async (req, res) => {
     if (req.app.locals.io) {
       req.app.locals.io.emit("refresh_projects");
       if (req.user.company_id) {
+        const eventTimestamp = new Date().toISOString();
         req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_notification", {
           type: 'project',
           title: 'Project Updated',
           content: `**${nextTitle}** was modified`,
           user_id: req.user.id,
-          created_at: new Date().toISOString(),
+          created_at: eventTimestamp,
           link: '/projects'
         });
         queueCompanyNotification(req.user.company_id, {
@@ -196,8 +199,9 @@ router.put('/:id', verifyToken, async (req, res) => {
           title: 'Project Updated',
           content: `**${nextTitle}** was modified`,
           teamId: nextTeamId,
+          sourceEventKey: `project:update:${projectId}:${eventTimestamp}`,
           link: '/projects',
-          createdAt: new Date().toISOString(),
+          createdAt: eventTimestamp,
         });
       }
     }

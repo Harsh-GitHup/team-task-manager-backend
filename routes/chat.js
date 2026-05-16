@@ -59,6 +59,7 @@ router.post("/", verifyToken, (req, res) => {
                 title: `New message from ${req.user.name}`,
                 content: message,
                 teamId: team_id,
+                sourceMessageId: insertResult.insertId,
                 link: '/chat',
                 createdAt: new Date().toISOString(),
               },

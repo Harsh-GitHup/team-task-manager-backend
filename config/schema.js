@@ -101,12 +101,16 @@ const schemaStatements = [
     title VARCHAR(255) NOT NULL,
     content TEXT,
     team_id INT DEFAULT NULL,
+    source_message_id INT DEFAULT NULL,
+    source_event_key VARCHAR(255) DEFAULT NULL,
     link VARCHAR(255) DEFAULT NULL,
     read_at TIMESTAMP NULL DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_notifications_recipient FOREIGN KEY (recipient_user_id) REFERENCES users(id),
     CONSTRAINT fk_notifications_actor FOREIGN KEY (actor_user_id) REFERENCES users(id),
-    CONSTRAINT fk_notifications_team FOREIGN KEY (team_id) REFERENCES teams(id)
+    CONSTRAINT fk_notifications_team FOREIGN KEY (team_id) REFERENCES teams(id),
+    UNIQUE KEY unique_notifications_source_message (type, source_message_id),
+    UNIQUE KEY unique_notifications_source_event (type, source_event_key)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS task_attachments (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -241,6 +245,30 @@ async function initializeSchema(db) {
     }
   };
 
+  const addUniqueIndex = async (table, indexName, columns) => {
+    try {
+      await promiseDb.query(
+        `ALTER TABLE ${table} ADD UNIQUE KEY ${indexName} (${columns})`,
+      );
+    } catch (err) {
+      if (err?.code === "ER_DUP_KEYNAME") return;
+      if (!String(err?.message || "").includes("Duplicate key name")) {
+        console.warn(`Could not create unique index ${indexName}:`, err.message);
+      }
+    }
+  };
+
+  await addColumn(
+    "notifications",
+    "source_message_id",
+    "INT NULL AFTER team_id",
+  );
+  await addColumn(
+    "notifications",
+    "source_event_key",
+    "VARCHAR(255) NULL AFTER source_message_id",
+  );
+
   await addIndex("tasks", "idx_tasks_project", "project_id");
   await addIndex("tasks", "idx_tasks_assigned", "assigned_to");
   await addIndex("tasks", "idx_tasks_team", "team_id");
@@ -250,6 +278,8 @@ async function initializeSchema(db) {
   await addIndex("teams", "idx_teams_company", "company_id");
   await addIndex("team_members", "idx_team_members_team", "team_id");
   await addIndex("notifications", "idx_notifications_recipient_read", "recipient_user_id, read_at, created_at");
+  await addUniqueIndex("notifications", "unique_notifications_source_message", "type, source_message_id");
+  await addUniqueIndex("notifications", "unique_notifications_source_event", "type, source_event_key");
   await addIndex("team_members", "idx_team_members_user", "user_id");
   await addIndex("invite_tokens", "idx_invite_tokens_team", "team_id");
   await addIndex("invite_tokens", "idx_invite_tokens_email", "email");

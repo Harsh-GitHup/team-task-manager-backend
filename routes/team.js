@@ -123,11 +123,12 @@ router.post("/set-head", verifyToken, async (req, res) => {
       const company_id = team.company_id;
 
       // Send role update to the user and all admins in the company
+      const eventTimestamp = new Date().toISOString();
       io.to(`company_${company_id}`).emit("role_changed", {
         user_id: user_id,
         new_role: 'head',
         team_id: team_id,
-        timestamp: new Date().toISOString()
+        timestamp: eventTimestamp
       });
 
       // Send notification to the assigned head user and all company admins
@@ -138,7 +139,7 @@ router.post("/set-head", verifyToken, async (req, res) => {
         content: `User has been assigned as head of a team`,
         team_id: team_id,
         affected_user_id: user_id,
-        created_at: new Date().toISOString()
+        created_at: eventTimestamp
       });
 
       queueCompanyNotification(company_id, {
@@ -147,7 +148,8 @@ router.post("/set-head", verifyToken, async (req, res) => {
         title: 'Team Head Assignment',
         content: 'User has been assigned as head of a team',
         teamId: team_id,
-        createdAt: new Date().toISOString(),
+        sourceEventKey: `team:set-head:${team_id}:${user_id}:${eventTimestamp}`,
+        createdAt: eventTimestamp,
       }).catch((err) => console.error('Failed to store head assignment notification:', err));
     }
 
@@ -319,13 +321,14 @@ router.put("/:teamId/members/:userId", verifyToken, async (req, res) => {
     const io = req.app.locals.io;
     if (io) {
       const company_id = team.company_id;
+      const eventTimestamp = new Date().toISOString();
 
       // Send role update to the user and all admins in the company
       io.to(`company_${company_id}`).emit("role_changed", {
         user_id: userId,
         new_role: role,
         team_id: teamId,
-        timestamp: new Date().toISOString()
+        timestamp: eventTimestamp
       });
 
       // Send notification
@@ -337,7 +340,7 @@ router.put("/:teamId/members/:userId", verifyToken, async (req, res) => {
         content: `User role has been updated`,
         team_id: teamId,
         affected_user_id: userId,
-        created_at: new Date().toISOString()
+        created_at: eventTimestamp
       });
 
       queueCompanyNotification(company_id, {
@@ -346,7 +349,8 @@ router.put("/:teamId/members/:userId", verifyToken, async (req, res) => {
         title: `Role Updated to ${roleLabel}`,
         content: `User role has been updated`,
         teamId: teamId,
-        createdAt: new Date().toISOString(),
+        sourceEventKey: `team:update-role:${teamId}:${userId}:${role}:${eventTimestamp}`,
+        createdAt: eventTimestamp,
       }).catch((err) => console.error('Failed to store role update notification:', err));
     }
 
