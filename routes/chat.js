@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../config/db");
 const { verifyToken } = require("../middleware/authMiddleware");
+const { queueCompanyNotification } = require("./notifications");
 
 // SEND MESSAGE
 router.post("/", verifyToken, (req, res) => {
@@ -50,6 +51,19 @@ router.post("/", verifyToken, (req, res) => {
           // Also broadcast to company for global notifications
           if (req.user.company_id) {
             req.app.locals.io.to(`company_${req.user.company_id}`).emit("new_message", newMessage);
+            queueCompanyNotification(
+              req.user.company_id,
+              {
+                actorUserId: req.user.id,
+                type: 'message',
+                title: `New message from ${req.user.name}`,
+                content: message,
+                teamId: team_id,
+                link: '/chat',
+                createdAt: new Date().toISOString(),
+              },
+              { excludeUserIds: [req.user.id] }
+            ).catch((err) => console.error('Failed to store chat notification:', err));
           }
 
           return res.status(201).json({ id: insertResult.insertId, message: "Message sent", data: newMessage });

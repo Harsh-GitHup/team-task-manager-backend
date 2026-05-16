@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../config/db");
 const { verifyToken, isAdmin } = require("../middleware/authMiddleware");
+const { queueCompanyNotification } = require("./notifications");
 
 // CREATE TEAM (ADMIN ONLY)
 router.post("/", verifyToken, isAdmin, async (req, res) => {
@@ -139,6 +140,15 @@ router.post("/set-head", verifyToken, async (req, res) => {
         affected_user_id: user_id,
         created_at: new Date().toISOString()
       });
+
+      queueCompanyNotification(company_id, {
+        actorUserId: req.user.id,
+        type: 'role_change',
+        title: 'Team Head Assignment',
+        content: 'User has been assigned as head of a team',
+        teamId: team_id,
+        createdAt: new Date().toISOString(),
+      }).catch((err) => console.error('Failed to store head assignment notification:', err));
     }
 
     return res.json({ message: "Team head assigned" });
@@ -329,6 +339,15 @@ router.put("/:teamId/members/:userId", verifyToken, async (req, res) => {
         affected_user_id: userId,
         created_at: new Date().toISOString()
       });
+
+      queueCompanyNotification(company_id, {
+        actorUserId: req.user.id,
+        type: 'role_change',
+        title: `Role Updated to ${roleLabel}`,
+        content: `User role has been updated`,
+        teamId: teamId,
+        createdAt: new Date().toISOString(),
+      }).catch((err) => console.error('Failed to store role update notification:', err));
     }
 
     return res.json({ message: "Team member updated" });

@@ -10,6 +10,7 @@ const chatRoutes = require("./routes/chat");
 const projectRoutes = require("./routes/project");
 const taskRoutes = require("./routes/task");
 const inviteRoutes = require("./routes/invite");
+const notificationsRoutes = require("./routes/notifications");
 const db = require("./config/db");
 const { initializeSchema } = require("./config/schema");
 
@@ -106,6 +107,7 @@ app.use("/chat", chatRoutes);
 app.use("/projects", projectRoutes);
 app.use("/tasks", taskRoutes);
 app.use("/invites", inviteRoutes);
+app.use("/notifications", notificationsRoutes.router);
 app.use("/activities", activityRoutes);
 
 const fs = require('node:fs');

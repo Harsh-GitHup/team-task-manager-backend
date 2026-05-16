@@ -93,6 +93,21 @@ const schemaStatements = [
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_activities_user FOREIGN KEY (user_id) REFERENCES users(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    recipient_user_id INT NOT NULL,
+    actor_user_id INT DEFAULT NULL,
+    type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content TEXT,
+    team_id INT DEFAULT NULL,
+    link VARCHAR(255) DEFAULT NULL,
+    read_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_notifications_recipient FOREIGN KEY (recipient_user_id) REFERENCES users(id),
+    CONSTRAINT fk_notifications_actor FOREIGN KEY (actor_user_id) REFERENCES users(id),
+    CONSTRAINT fk_notifications_team FOREIGN KEY (team_id) REFERENCES teams(id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS task_attachments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     task_id INT NOT NULL,
@@ -211,30 +226,6 @@ async function initializeSchema(db) {
   // Align enum with app usage (Task status includes "Review" in UI/routes).
   await ensureTaskStatusEnum();
 
-  /*
-  // Create default company
-  const [companies] = await promiseDb.query("SELECT id FROM companies WHERE name = 'Default'");
-  let defaultCompanyId = null;
-  if (companies.length === 0) {
-    const [result] = await promiseDb.query("INSERT INTO companies (name) VALUES ('Default')");
-    defaultCompanyId = result.insertId;
-  } else {
-    defaultCompanyId = companies[0].id;
-  }
-
-  // Seed admin user
-  await promiseDb.query(
-    `INSERT IGNORE INTO users (id, name, email, password, role, company_id)
-     VALUES (1, 'Alex', 'admin@team.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', ?)`,
-    [defaultCompanyId]
-  );
-
-  await promiseDb.query(
-    "UPDATE users SET company_id = ? WHERE id = 1 AND company_id IS NULL",
-    [defaultCompanyId]
-  );
-  */
-
   // --- Performance Indexes (Safe Version) ---
   const addIndex = async (table, indexName, columns) => {
     try {
@@ -258,6 +249,7 @@ async function initializeSchema(db) {
   await addIndex("users", "idx_users_company", "company_id");
   await addIndex("teams", "idx_teams_company", "company_id");
   await addIndex("team_members", "idx_team_members_team", "team_id");
+  await addIndex("notifications", "idx_notifications_recipient_read", "recipient_user_id, read_at, created_at");
   await addIndex("team_members", "idx_team_members_user", "user_id");
   await addIndex("invite_tokens", "idx_invite_tokens_team", "team_id");
   await addIndex("invite_tokens", "idx_invite_tokens_email", "email");

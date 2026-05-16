@@ -127,7 +127,29 @@ CREATE TABLE IF NOT EXISTS activities (
     CONSTRAINT fk_activities_user FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
--- 10. Task Attachments table
+-- 10. Notifications table
+CREATE TABLE IF NOT EXISTS notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    recipient_user_id INT NOT NULL,
+    actor_user_id INT DEFAULT NULL,
+    type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content TEXT,
+    team_id INT DEFAULT NULL,
+    link VARCHAR(255) DEFAULT NULL,
+    read_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_notifications_recipient FOREIGN KEY (recipient_user_id) REFERENCES users (id),
+    CONSTRAINT fk_notifications_actor FOREIGN KEY (actor_user_id) REFERENCES users (id),
+    CONSTRAINT fk_notifications_team FOREIGN KEY (team_id) REFERENCES teams (id),
+    INDEX idx_notifications_recipient_read (
+        recipient_user_id,
+        read_at,
+        created_at
+    )
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+-- 11. Task Attachments table
 CREATE TABLE IF NOT EXISTS task_attachments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     task_id INT NOT NULL,

@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../config/db');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { logActivity } = require('./activity');
+const { queueCompanyNotification } = require('./notifications');
 
 
 // Create project (company admin OR team head)
@@ -52,6 +53,15 @@ router.post('/', verifyToken, (req, res) => {
               user_id: req.user.id,
               created_at: new Date().toISOString(),
               link: '/projects'
+            });
+            queueCompanyNotification(req.user.company_id, {
+              actorUserId: req.user.id,
+              type: 'project',
+              title: 'New Project',
+              content: `**${title}** was created`,
+              teamId: team_id,
+              link: '/projects',
+              createdAt: new Date().toISOString(),
             });
           }
         }
@@ -179,6 +189,15 @@ router.put('/:id', verifyToken, async (req, res) => {
           user_id: req.user.id,
           created_at: new Date().toISOString(),
           link: '/projects'
+        });
+        queueCompanyNotification(req.user.company_id, {
+          actorUserId: req.user.id,
+          type: 'project',
+          title: 'Project Updated',
+          content: `**${nextTitle}** was modified`,
+          teamId: nextTeamId,
+          link: '/projects',
+          createdAt: new Date().toISOString(),
         });
       }
     }

@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('node:path');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { logActivity } = require('./activity');
+const { queueCompanyNotification } = require('./notifications');
 
 function normalizeDueDate(value) {
   if (value === null || value === undefined || value === '') return { value: null };
@@ -106,6 +107,15 @@ router.post('/', verifyToken, (req, res) => {
                 user_id: req.user.id,
                 created_at: new Date().toISOString(),
                 link: '/tasks'
+              });
+              queueCompanyNotification(req.user.company_id, {
+                actorUserId: req.user.id,
+                type: 'task',
+                title: 'New Task',
+                content: `**${title}** was created`,
+                teamId: team_id,
+                link: '/tasks',
+                createdAt: new Date().toISOString(),
               });
             }
           }
@@ -281,6 +291,15 @@ router.put('/:id', verifyToken, async (req, res) => {
           user_id: req.user.id,
           created_at: new Date().toISOString(),
           link: '/tasks'
+        });
+        queueCompanyNotification(req.user.company_id, {
+          actorUserId: req.user.id,
+          type: 'task',
+          title: 'Task Updated',
+          content: `**${title ?? task.title}** moved to **${status ?? task.status}**`,
+          teamId: task.team_id || team_id || null,
+          link: '/tasks',
+          createdAt: new Date().toISOString(),
         });
       }
     }
