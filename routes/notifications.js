@@ -3,55 +3,119 @@ const router = express.Router();
 const db = require('../config/db');
 const { verifyToken } = require('../middleware/authMiddleware');
 
-async function queueCompanyNotification(companyId, payload, options = {}) {
-    if (!companyId) return;
+/**
+ * Convert a Date or ISO string into MySQL DATETIME format: "YYYY-MM-DD HH:MM:SS"
+ */
+function formatDateForMySQL(input) {
+    // Use UTC components to avoid timezone-related insertion errors
+    const d = input ? new Date(input) : new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const YYYY = d.getUTCFullYear();
+    const MM = pad(d.getUTCMonth() + 1);
+    const DD = pad(d.getUTCDate());
+    const hh = pad(d.getUTCHours());
+    const mm = pad(d.getUTCMinutes());
+    const ss = pad(d.getUTCSeconds());
+    return `${YYYY}-${MM}-${DD} ${hh}:${mm}:${ss}`;
+}
 
-    const { excludeUserIds = [] } = options;
-    const excludeSet = new Set(excludeUserIds.map(String));
-    const [users] = await db.promise().query(
-        'SELECT id FROM users WHERE company_id = ?',
-        [companyId]
-    );
+// queueCompanyNotification supports two calling styles for backward-compatibility:
+// 1) queueCompanyNotification(companyId, payload, options)
+// 2) queueCompanyNotification({ recipients: [...], actor_user_id, type, title, ... })
+async function queueCompanyNotification(arg1, arg2 = {}, arg3 = {}) {
+    let recipients = [];
+    let actor_user_id = null;
+    let type = null;
+    let title = null;
+    let content = null;
+    let team_id = null;
+    let link = null;
+    let created_at = null;
 
-    const recipientIds = (users || [])
-        .map((user) => user.id)
-        .filter((id) => !excludeSet.has(String(id)));
+    // use RegExp.exec() instead of String.prototype.match()
+    const numericIdRegex = /^\d+$/;
 
-    if (recipientIds.length === 0) return;
+    // Detect legacy signature: first arg is companyId (number/string)
+    if (typeof arg1 === 'number' || (typeof arg1 === 'string' && numericIdRegex.exec(arg1))) {
+        const companyId = arg1;
+        const payload = arg2 || {};
+        const options = arg3 || {};
 
-    const rows = recipientIds.map((recipientUserId) => [
-        recipientUserId,
-        payload.actorUserId ?? null,
-        payload.type,
-        payload.title,
-        payload.content || '',
-        payload.teamId ?? null,
-        payload.link || null,
-        payload.createdAt || new Date().toISOString(),
-    ]);
+        actor_user_id = payload.actorUserId ?? payload.actor_user_id ?? null;
+        type = payload.type;
+        title = payload.title;
+        content = payload.content || '';
+        team_id = payload.teamId ?? payload.team_id ?? null;
+        link = payload.link || null;
+        created_at = payload.createdAt ?? payload.created_at ?? new Date();
 
-    await db.promise().query(
-        'INSERT INTO notifications (recipient_user_id, actor_user_id, type, title, content, team_id, link, created_at) VALUES ?',
-        [rows]
-    );
+        // build recipient list: users in the company (exclude optional IDs)
+        try {
+            const exclude = Array.isArray(options.excludeUserIds) && options.excludeUserIds.length > 0 ? options.excludeUserIds : [];
+            // fetch user ids for the company
+            const [rows] = await db.promise().query('SELECT id FROM users WHERE company_id = ?', [companyId]);
+            recipients = rows.map(r => r.id).filter(id => !exclude.includes(id));
+        } catch (err) {
+            console.error('Failed to fetch company recipients for notifications:', err);
+            recipients = [];
+        }
+    } else if (typeof arg1 === 'object' && arg1 !== null) {
+        // New-style: single object with recipients etc.
+        const opts = arg1;
+        recipients = Array.isArray(opts.recipients) ? opts.recipients : [];
+        actor_user_id = opts.actor_user_id ?? opts.actorUserId ?? null;
+        type = opts.type;
+        title = opts.title;
+        content = opts.content || '';
+        team_id = opts.team_id ?? opts.teamId ?? null;
+        link = opts.link || null;
+        created_at = opts.created_at ?? opts.createdAt ?? new Date();
+    } else {
+        // nothing sensible passed
+        return;
+    }
+
+    if (!Array.isArray(recipients) || recipients.length === 0) return;
+
+    // ensure created_at is MySQL DATETIME-friendly
+    const createdAtFormatted = formatDateForMySQL(created_at);
+
+    try {
+        // build multi-row INSERT using parameterized placeholders
+        const values = [];
+        const placeholders = recipients.map((recipientId) => {
+            values.push(recipientId, actor_user_id, type, title, content, team_id, link, createdAtFormatted);
+            return '(?, ?, ?, ?, ?, ?, ?, ?)';
+        }).join(', ');
+
+        const sql = `INSERT INTO notifications (recipient_user_id, actor_user_id, type, title, content, team_id, link, created_at) VALUES ${placeholders}`;
+
+        await db.promise().query(sql, values);
+    } catch (err) {
+        console.error('Failed to store chat notification:', err);
+    }
 }
 
 async function queueUserNotification(userId, payload) {
     if (!userId) return;
-
-    await db.promise().query(
-        'INSERT INTO notifications (recipient_user_id, actor_user_id, type, title, content, team_id, link, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-            userId,
-            payload.actorUserId ?? null,
-            payload.type,
-            payload.title,
-            payload.content || '',
-            payload.teamId ?? null,
-            payload.link || null,
-            payload.createdAt || new Date().toISOString(),
-        ]
-    );
+    try {
+        const createdAt = formatDateForMySQL(payload.createdAt ?? payload.created_at ?? new Date());
+        await db.promise().query(
+            'INSERT INTO notifications (recipient_user_id, actor_user_id, type, title, content, team_id, link, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                userId,
+                payload.actorUserId ?? payload.actor_user_id ?? null,
+                payload.type,
+                payload.title,
+                payload.content || '',
+                payload.teamId ?? payload.team_id ?? null,
+                payload.link || null,
+                createdAt,
+            ]
+        );
+    } catch (err) {
+        console.error('Failed to store user notification:', err);
+    }
 }
 
 router.get('/', verifyToken, async (req, res) => {
