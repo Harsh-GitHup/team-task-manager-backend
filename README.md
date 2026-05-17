@@ -62,6 +62,12 @@ This folder contains the Express + MySQL API for the company-scoped Team Task Ma
 - `POST /chat` - send a team message
 - `GET /activities` - fetch recent company activity items
 
+### Notifications
+
+- `GET /notifications` - fetch unread notifications for the current user
+- `POST /notifications/mark-read` - mark notifications as read (by ID array or all)
+- `POST /notifications/read-on-open` - mark specific notifications as read on view
+
 ### Utility
 
 - `GET /` - runtime status with schema readiness
@@ -91,6 +97,7 @@ This folder contains the Express + MySQL API for the company-scoped Team Task Ma
 - `routes/task.js` - task creation, listing, update, delete, and attachments
 - `routes/chat.js` - team message send and retrieval
 - `routes/activity.js` - activity feed retrieval and logging helper
+- `routes/notifications.js` - notification management and queuing
 - `scripts/admin_e2e.js` - scripted admin-to-member end-to-end flow
 - `scripts/seed.js` - large-scale test data generator
 - `schema.sql` - manual schema bootstrap for fresh databases
@@ -168,7 +175,9 @@ This clears the database and generates a large demo dataset for testing.
 - Use a managed MySQL service for production workloads
 - Keep `.env` out of version control
 
-## Socket.IO events
+## Real-time features
+
+### Socket.IO events
 
 - `join_team(teamId)` - join a team room
 - `join_company(companyId)` - join a company room
@@ -176,6 +185,16 @@ This clears the database and generates a large demo dataset for testing.
 - `refresh_projects` - project data changed
 - `new_message` - chat message broadcast
 - `new_notification` - company notification broadcast
+
+### Notification system
+
+The backend includes a centralized notification queue system supporting:
+
+- **Type-based routing**: Notifications route to team members for team-scoped events (`message`, `task`, `role_change`, `project`) and to all company users for global events
+- **Shared team notifications**: Team-scoped events are stored once and fan-out at read-time based on team membership
+- **Actor exclusion**: The notification originator can be optionally excluded from receiving their own notification
+- **Status tracking**: Unread status with `read_at` timestamp for audit and read receipts
+- **Link support**: Each notification can include a `link` to navigate the user to relevant content
 
 ## Notes
 

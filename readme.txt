@@ -79,7 +79,8 @@ Backend/
 │   ├── project.js            # Project CRUD operations
 │   ├── task.js               # Task CRUD and file attachments
 │   ├── chat.js               # Team messaging
-│   └── activity.js           # Activity feed and logging
+│   ├── activity.js           # Activity feed and logging
+│   └── notifications.js      # Notification queuing, retrieval, and read status
 │
 ├── scripts/
 │   ├── admin_e2e.js          # End-to-end flow test script
@@ -258,21 +259,27 @@ PROJECTS
    DELETE /projects/:id          Delete project
 
 TASKS
-   GET    /tasks                 List tasks
+   GET    /tasks                 List tasks with pagination, search, filters
    POST   /tasks                 Create task
    PUT    /tasks/:id             Update task
    DELETE /tasks/:id             Delete task
    POST   /tasks/:id/attachments Upload file to task
+   GET    /tasks/:id/attachments List attachments for task
 
 CHAT
-   GET    /chat/:teamId          Get team messages
-   POST   /chat                  Send message
+   GET    /chat/:teamId          Get team messages (recent first)
+   POST   /chat                  Send message to team
 
 ACTIVITY
-   GET    /activities            Get company activity feed
+   GET    /activities            Get company activity feed (recent first)
+
+NOTIFICATIONS
+   GET    /notifications         Get unread notifications for current user
+   POST   /notifications/mark-read Mark notifications as read (by ID or all)
+   POST   /notifications/read-on-open Mark specific notifications as read on view
 
 UTILITY
-   GET    /                      Server status
+   GET    /                      Server status with schema readiness
    GET    /health                Health check with DB status
 
 ================================================================================
@@ -324,18 +331,44 @@ ENVIRONMENT SETUP FOR PRODUCTION
 5. Monitor logs and performance
 
 ================================================================================
-SOCKET.IO EVENTS
+REAL-TIME FEATURES
 ================================================================================
 
+SOCKET.IO EVENTS
+
 Client can join channels:
-   socket.emit('join_team', teamId)     # Join team chat room
+   socket.emit('join_team', teamId)       # Join team chat room
    socket.emit('join_company', companyId) # Join company updates
 
 Server broadcasts:
-   refresh_tasks      # Tasks have changed (UI should reload)
-   refresh_projects   # Projects have changed (UI should reload)
-   new_message        # New chat message in team
-   refresh_activities # Activity feed updated
+   refresh_tasks         # Tasks have changed (UI should reload)
+   refresh_projects      # Projects have changed (UI should reload)
+   new_message          # New chat message in team (with sender info)
+   new_notification     # Notification for company members
+
+NOTIFICATION SYSTEM
+
+The backend includes a centralized notification queue system supporting:
+
+   Type-based routing:
+   - Team-scoped notifications (message, task, role_change, project)
+     route to team members only
+   - Global notifications route to all company users
+
+   Shared team notifications:
+   - Team events are stored once and fan-out at read-time
+   - Reduces database overhead for high-volume events
+   - Actor exclusion: event originator can be excluded
+
+   Status tracking:
+   - Unread status with read_at timestamp
+   - Supports mark-as-read for single or all notifications
+   - Read-on-open support for immediate UI feedback
+
+   Rich content:
+   - Each notification includes type, title, content, link
+   - Supports source_message_id, source_event_key for linking
+   - Actor user info for contextual notifications
 
 ================================================================================
 TROUBLESHOOTING
