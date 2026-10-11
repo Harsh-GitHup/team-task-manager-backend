@@ -27,13 +27,18 @@ const corsOriginChecker = (origin, callback) => {
   // Allow non-browser/server-to-server and local tooling requests with no Origin header.
   if (!origin) return callback(null, true);
   if (!isCorsRestricted) return callback(null, true);
-  return callback(null, corsAllowlist.includes(normalizeOrigin(origin)));
+  const normalized = normalizeOrigin(origin);
+  if (corsAllowlist.includes(normalized)) return callback(null, true);
+  // Allow Vercel preview and production domains if origin is a vercel.app subdomain
+  if (/\.vercel\.app$/.test(normalized)) return callback(null, true);
+  return callback(null, false);
 };
 
 const io = new Server(server, {
   cors: {
-    origin: isCorsRestricted ? corsAllowlist : true,
-    methods: ["GET", "POST", "PUT", "DELETE"]
+    origin: isCorsRestricted ? (origin, cb) => corsOriginChecker(origin, cb) : true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
   }
 });
 
@@ -111,10 +116,17 @@ app.use("/notifications", notificationsRoutes.router);
 app.use("/activities", activityRoutes);
 
 const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
 
-// Ensure uploads dir exists
-if (!fs.existsSync('uploads')) {
-  fs.mkdirSync('uploads', { recursive: true });
+// Ensure uploads dir exists safely (handles serverless read-only filesystems via tmpdir)
+const uploadDir = process.env.VERCEL ? path.join(os.tmpdir(), 'uploads') : path.resolve(__dirname, 'uploads');
+try {
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (err) {
+  console.warn('Could not create uploads directory:', err.message);
 }
 
 // Global error handler
@@ -124,7 +136,7 @@ app.use((err, req, res, next) => {
 });
 
 // Serve attachments statically
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static(uploadDir));
 
 const resolvedPort = Number(process.env.PORT);
 const PORT = Number.isFinite(resolvedPort) && resolvedPort > 0 ? resolvedPort : 8080;
@@ -165,4 +177,14 @@ process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception:", error);
 });
 
-startServer();
+// If run directly (e.g. node server.js / Railway / Render / Local), start the HTTP + WebSocket server.
+// If imported by a serverless function handler (e.g. Vercel), export the express app.
+if (require.main === module) {
+  startServer();
+} else {
+  // Best-effort schema init for serverless invocations
+  initSchemaWithRetry(1, 1000).catch(() => {});
+}
+
+module.exports = app;
+module.exports.server = server;

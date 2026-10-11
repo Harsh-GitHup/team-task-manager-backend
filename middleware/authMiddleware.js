@@ -4,7 +4,7 @@ const db = require("../config/db");
 const verifyToken = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
 
-  if (!token) return res.status(401).send("No token");
+  if (!token) return res.status(401).json({ error: "No token provided" });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
@@ -14,11 +14,11 @@ const verifyToken = (req, res, next) => {
       (err, rows) => {
         if (err) {
           console.error(err);
-          return res.status(500).send("Database error");
+          return res.status(500).json({ error: "Database error" });
         }
 
         if (!rows || rows.length === 0) {
-          return res.status(401).send("Invalid token");
+          return res.status(401).json({ error: "Invalid token" });
         }
 
         req.user = { ...decoded, ...rows[0] };
@@ -26,13 +26,13 @@ const verifyToken = (req, res, next) => {
       }
     );
   } catch {
-    res.status(401).send("Invalid token");
+    res.status(401).json({ error: "Invalid token" });
   }
 };
 
 const isAdmin = (req, res, next) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).send("Admin only");
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ error: "Admin only" });
   }
   next();
 };

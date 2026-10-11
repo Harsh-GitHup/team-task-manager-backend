@@ -74,11 +74,11 @@ router.post("/login", (req, res) => {
         async (err, result) => {
             if (err) {
                 console.log(err);
-                return res.status(500).send("Database error");
+                return res.status(500).json({ error: "Database error" });
             }
 
             if (!result || result.length === 0) {
-                return res.status(404).send("User not found");
+                return res.status(404).json({ error: "User not found" });
             }
 
             const user = result[0];
@@ -87,7 +87,7 @@ router.post("/login", (req, res) => {
                 const match = await bcrypt.compare(password, user.password);
 
                 if (!match) {
-                    return res.status(401).send("Wrong password");
+                    return res.status(401).json({ error: "Wrong password" });
                 }
 
                 const token = jwt.sign(
@@ -100,7 +100,7 @@ router.post("/login", (req, res) => {
                 res.json({ token, user: safeUser });
             } catch (error) {
                 console.log(error);
-                res.status(500).send("Login error");
+                res.status(500).json({ error: "Login error" });
             }
         }
     );

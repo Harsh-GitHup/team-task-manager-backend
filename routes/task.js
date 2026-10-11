@@ -3,6 +3,8 @@ const router = express.Router();
 const db = require('../config/db');
 const multer = require('multer');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { logActivity } = require('./activity');
 const { queueCompanyNotification } = require('./notifications');
@@ -24,10 +26,19 @@ function normalizeDueDate(value) {
   return { value: parsed.toISOString().slice(0, 10) };
 }
 
-// Configure Multer for file uploads
+// Configure Multer for file uploads (handles Vercel read-only filesystem via tmpdir)
+const uploadDir = process.env.VERCEL ? path.join(os.tmpdir(), 'uploads') : path.resolve(__dirname, '../uploads');
+try {
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (err) {
+  console.warn('Could not create uploads directory:', err.message);
+}
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/'); // Ensure this directory exists
+    cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -37,7 +48,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 * 1024, // 100 MB
+    fileSize: 25 * 1024 * 1024, // 25 MB max file upload
   },
 });
 

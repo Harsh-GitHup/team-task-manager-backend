@@ -144,8 +144,32 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
-module.exports = router;
+// GET SINGLE PROJECT BY ID
+router.get('/:id', verifyToken, async (req, res) => {
+  try {
+    const projectId = req.params.id;
+    const [rows] = await db.promise().query(
+      `SELECT p.*, t.name as team_name, t.company_id as team_company_id 
+       FROM projects p 
+       LEFT JOIN teams t ON p.team_id = t.id 
+       WHERE p.id = ?`,
+      [projectId]
+    );
 
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Project not found' });
+    const project = rows[0];
+
+    // Check company permission
+    if (req.user.company_id && project.team_company_id && req.user.company_id !== project.team_company_id) {
+      return res.status(403).json({ error: 'Cross-company access denied' });
+    }
+
+    return res.json(project);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // UPDATE PROJECT (admin or owner)
 router.put('/:id', verifyToken, async (req, res) => {
@@ -240,4 +264,6 @@ router.delete('/:id', verifyToken, async (req, res) => {
     return res.status(500).json({ error: 'Project delete failed' });
   }
 });
+
+module.exports = router;
 

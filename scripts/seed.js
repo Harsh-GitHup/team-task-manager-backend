@@ -65,11 +65,11 @@ const seed = async () => {
         const [compRes] = await conn.query("INSERT INTO companies (name) VALUES (?)", [cName]);
         const companyId = compRes.insertId;
 
-        // 2. Create Admin
-        const adminEmail = `admin-${Date.now()}-${c}@${cName.toLowerCase().replaceAll(/\s/g, '')}.com`;
+        // 2. Create Admin (Deterministic credentials for primary demo company)
+        const adminEmail = c === 0 ? 'admin@example.com' : `admin-${Date.now()}-${c}@${cName.toLowerCase().replaceAll(/\s/g, '')}.com`;
         const [adminRes] = await conn.query(
           "INSERT INTO users (name, email, password, role, company_id) VALUES (?, ?, ?, 'admin', ?)",
-          [`Admin ${c + 1}`, adminEmail, adminPass, companyId]
+          [c === 0 ? 'Admin Demo' : `Admin ${c + 1}`, adminEmail, adminPass, companyId]
         );
         const adminId = adminRes.insertId;
         totalUsers++;
@@ -79,10 +79,12 @@ const seed = async () => {
         for (let u = 0; u < USERS_PER_COMPANY; u++) {
           const fName = pick(firstNames);
           const lName = pick(lastNames);
-          const email = `${fName.toLowerCase()}.${lName.toLowerCase()}${u + (c * 1000)}@${cName.toLowerCase().replaceAll(/\s/g, '')}.io`;
+          const email = (c === 0 && u === 0)
+            ? 'user@example.com'
+            : `${fName.toLowerCase()}.${lName.toLowerCase()}${u + (c * 1000)}@${cName.toLowerCase().replaceAll(/\s/g, '')}.io`;
           const [uRes] = await conn.query(
             "INSERT INTO users (name, email, password, role, company_id) VALUES (?, ?, ?, 'user', ?)",
-            [`${fName} ${lName}`, email, userPass, companyId]
+            [(c === 0 && u === 0) ? 'Member Demo' : `${fName} ${lName}`, email, userPass, companyId]
           );
           userIds.push(uRes.insertId);
           totalUsers++;
@@ -161,6 +163,10 @@ const seed = async () => {
     console.log(`👥 Total Teams:     ${totalTeams}`);
     console.log(`📂 Total Projects:  ${totalProjects}`);
     console.log(`📋 Total Tasks:     ${totalTasks}`);
+    console.log('------------------------------');
+    console.log('🔑 DEMO LOGIN CREDENTIALS:');
+    console.log('👑 Admin:  admin@example.com / admin123');
+    console.log('👤 Member: user@example.com  / user123');
     console.log('------------------------------');
 
     conn.release();
